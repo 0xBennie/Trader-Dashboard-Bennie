@@ -1,0 +1,2 @@
+# Only image validation/re-encoding needs a third-party package.
+Pillow==12.1.1

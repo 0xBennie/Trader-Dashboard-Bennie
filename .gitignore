@@ -1,0 +1,29 @@
+# Instance secrets and private runtime state
+.env*
+!.env.example
+data/
+backups/
+releases/
+research/
+*.sqlite*
+*.db
+*.db-*
+*.pem
+*.key
+*.log
+
+# Private screenshots, handoffs, audit documents and production host configuration
+static/assets/*
+!static/assets/favicon.svg
+!static/assets/training-icon-192.png
+!static/assets/training-icon-512.png
+docs/
+deploy/
+
+# Local environments and generated caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store

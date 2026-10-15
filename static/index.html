@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#2549d8">
+  <meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.webmanifest"><title>Trader-Dashboard(Bennie) · 交易手记</title><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/training.css"><script src="/journal-client.js" defer></script><script src="/analytics.js" defer></script><link rel="stylesheet" href="/dashboard.css"><script src="/dashboard.js" defer></script><script src="/recorder.js" defer></script><link rel="stylesheet" href="/workflow.css"><script src="/workflow.js" defer></script><script src="/training.js" defer></script><script src="/ai-settings.js" defer></script><script src="/app.js" defer></script>
+</head>
+<body data-section="training">
+  <aside class="sidebar">
+    <a class="brand" href="#training"><span class="brandmark" aria-hidden="true"><svg width="22" height="24" viewBox="0 0 22 24" fill="none"><path d="M5 3H17V21H5V3Z M8 8H14 M8 12H14 M8 16H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>交易手记<small>Trader Dashboard</small></span></a>
+    <nav aria-label="主导航">
+      <button data-view="training" class="nav-item active"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>总览</button>
+      <button data-view="journal" class="nav-item"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z M9 8h6 M9 12h6"/></svg></span>交易<span class="nav-count" id="journal-count">—</span></button>
+      <button data-view="progress" class="nav-item"><span aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5v18h14V3h-3 M9 2h6v4H9z M8 13l3 3 5-6"/></svg></span>复盘</button>
+    </nav>
+    <div class="side-bottom"><div class="connection"><span class="dot" id="connection-dot"></span><div>Binance USDⓈ-M<small id="connection-text">正在读取状态</small></div><span class="read-only">只读</span></div><button class="nav-item" data-action="settings" data-wait-state disabled><span>⚙</span>连接设置</button></div>
+  </aside>
+  <main>
+    <header class="topbar"><span id="breadcrumb">工作台 <span>/</span> 今日训练</span><div class="top-right"><span class="time-zone">香港时间 UTC+8</span><button id="logout-button" class="button quiet small" data-action="logout" hidden>退出登录</button></div></header>
+    <div class="main-inner">
+      <div class="page-heading"><div><h1 id="page-title">账户与风险</h1><p id="page-description">账户、交易与复盘。</p></div><div class="page-actions"><button class="button quiet" data-action="ai-settings" data-wait-state disabled>AI 状态</button><button class="button quiet" data-action="export">↓ 导出</button><button class="button quiet" data-action="sync"><span id="sync-icon">⟳</span><span id="sync-label">同步 Binance</span></button></div></div>
+      <nav id="section-navigation" class="section-navigation" aria-label="当前栏目"></nav>
+      <div id="sync-notice" class="notice" role="status" hidden></div>
+      <div id="recorder-status" role="status"></div>
+      <div id="metrics" class="metrics"><div class="metric"><span>正在载入记录…</span></div></div>
+      <div class="section-tabs"><div id="tabs-label">交易日志 <span id="record-count">01</span></div><div class="toolbar"><span id="updated-time">尚未同步</span><select id="sync-days" aria-label="同步时间范围"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option></select><button class="button small" data-action="new">＋ 补充笔记</button></div></div>
+      <div id="content" aria-live="polite"><p class="dashboard-empty">正在读取账户与交易日志…</p></div>
+      <footer><span>交易手记</span><span>时间均为香港时间 · UTC+8</span></footer>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="settings-dialog"><div class="dialog-head"><div><h2>连接设置</h2><p>管理自动记录与 AI 复盘。</p></div><button class="icon-button" data-action="close-settings" aria-label="关闭设置">×</button></div>
+  <section class="ai-connect"><div class="panel-heading"><h3>AI 服务</h3><span class="badge">自主选择</span></div><p class="helper">用于交易复盘与开仓前审核。每家服务商单独保存设置，已有报告保留原始模型信息。</p>
+  <form id="ai-settings-form">
+    <label>服务商<select name="provider" required></select></label>
+    <label>模型 ID<input name="model" list="ai-model-list" autocomplete="off" spellcheck="false" required maxlength="200" placeholder="输入模型 ID，或先读取模型列表"></label><datalist id="ai-model-list"></datalist>
+    <label>API Key<input name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="填写当前服务商的 API Key"></label><p id="ai-key-hint" class="helper"></p>
+    <details id="ai-advanced" class="ai-advanced"><summary>接口地址与模型能力</summary>
+      <label>API 基础地址<input name="base_url" type="url" required placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false"></label>
+      <p class="helper">填写基础路径，不含 /chat/completions、/responses 或 /messages。更换地址请选择“自定义兼容接口”。</p>
+      <label>接口协议<select name="protocol"></select></label>
+      <label class="ai-capability"><input name="supports_images" type="checkbox"> 所选模型支持图片</label>
+      <label class="ai-capability"><input name="json_mode" type="checkbox"> 启用 JSON 输出参数</label><p class="helper">兼容接口不支持 JSON 参数时可关闭；输出仍会校验。Claude 使用提示词约束 JSON。</p>
+    </details>
+    <p id="ai-image-hint" class="helper"></p><p class="helper">密钥仅保存在服务器。交易所密钥不会发送给模型，生成费用由所选服务商结算。</p>
+    <div class="ai-connect-actions"><button class="button primary" type="submit">保存并使用</button><button class="button" type="button" data-action="ai-check">读取模型 / 测试连接</button></div>
+  </form><p id="ai-setting-status" role="status" class="setting-status"></p></section>
+  <details class="exchange-connect"><summary>Binance 只读连接</summary><form id="settings-form"><div class="setting-status" id="settings-status"></div><label>Binance API Key<input name="key" type="password" autocomplete="off" required placeholder="输入新的只读 API Key"></label><label>API Secret<input name="secret" type="password" autocomplete="off" required placeholder="输入对应 Secret"></label><p class="helper">应用读取持仓、成交与账单；保存密钥不会创建交易订单。</p><button class="button primary" type="submit">保存并同步</button></form></details></dialog>
+  <dialog id="recorder-dialog"><div class="dialog-head"><div><h2>自动记录设置</h2><p>后台运行时，关掉网页也会继续采集。</p></div><button class="icon-button" data-action="close-recorder" aria-label="关闭采集设置">×</button></div><form id="recorder-form"><label class="toggle-field"><input type="checkbox" name="enabled"> 自动记录新成交和持仓过程</label><label>仓位快照频率<select name="interval"><option value="15">每 15 秒</option><option value="30">每 30 秒</option><option value="60">每 60 秒</option></select></label><label class="toggle-field"><input type="checkbox" name="auto_ai"> 开仓、平仓后自动生成 AI 复盘</label><p class="helper">仓位变化会立即补读成交；平时每 60 秒补读成交，每 30 秒更新挂单，每 5 分钟保存行情。网络延迟时自动重试，频率不是实时保证。</p><p class="helper">采集器独立于浏览器运行，关闭网页不会停止记录。服务停止或网络中断期间无法采样；恢复后补读可查询的成交，缺失的历史仓位快照不会回造。</p><button class="button primary" type="submit">保存采集设置</button></form></dialog>
+  <dialog id="image-dialog"><button class="image-close" data-action="close-image" aria-label="关闭大图">×</button><img id="full-image" alt="入场时保存的原始图表"></dialog>
+  <dialog id="export-dialog"><div class="dialog-head"><div><h2>导出交易记录</h2><p>随时保留属于自己的记录。</p></div><button class="icon-button" data-action="close-export" aria-label="关闭导出">×</button></div><a class="export-option" href="/api/export?format=json" download><span>完整备份 <small>全部成交、账单、日志、仓位和行情快照、AI 报告</small></span><b>JSON ↓</b></a><a class="export-option" href="/api/export?format=csv" download><span>当前时间范围的成交 <small>可使用 Excel 或 Numbers 打开</small></span><b>CSV ↓</b></a><p class="helper">备份不包含密钥；入场截图保存在项目 static/assets 文件夹中。</p></dialog>
+</body></html>
