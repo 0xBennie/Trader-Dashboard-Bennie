@@ -1,0 +1,165 @@
+/* Reading, editing and connection settings share the same comfortable scale. */
+:root { --muted: #606a78; --bg: #f6f7f9; --surface-radius: 12px; }
+html { scroll-padding-top: 20px; }
+.skip-link { position: fixed; top: 8px; left: 16px; z-index: 100; padding: 12px 18px; background: #fff; color: var(--blue); border: 2px solid var(--blue); border-radius: 8px; transform: translateY(-150%); }
+.skip-link:focus { transform: none; }
+.sidebar { background: #fff; }
+.sidebar nav { margin-top: 38px; }
+.sidebar .nav-item { min-height: 46px; }
+.main-inner { max-width: 1280px; padding-top: 28px; }
+.page-heading { gap: 20px; margin-bottom: 18px; }
+.page-heading h1 { font-size: 28px; line-height: 1.35; letter-spacing: -.6px; }
+.page-heading p { max-width: 62ch; line-height: 1.7; margin-top: 6px; }
+.page-actions { flex-shrink: 0; align-items: center; }
+.page-actions > .button { background: #fff; border-color: var(--line); min-height: 40px; }
+.page-tools { position: relative; }
+.page-tools > summary { list-style: none; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; min-height: 40px; }
+.page-tools > summary::-webkit-details-marker { display: none; }
+.page-tools > summary svg { transition: transform 140ms ease; }
+.page-tools[open] > summary { background: #edf1f7; }
+.page-tools[open] > summary svg { transform: rotate(180deg); }
+.page-tools-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: 220px; padding: 7px; border: 1px solid #dfe3ea; border-radius: 12px; background: #fff; box-shadow: 0 12px 32px #17264414; }
+.page-actions .page-tools-menu .button { width: 100%; min-height: 44px; padding: 12px; display: flex; text-align: left; justify-content: flex-start; border: 0; margin: 0; font-size: 14px; }
+.page-tools-menu .button:hover { background: #f3f5f9; }
+.section-navigation { background: #eceff3; padding: 4px; border-radius: 10px; width: fit-content; gap: 3px; margin-bottom: 22px; }
+.section-navigation .button { min-height: 36px; padding: 8px 15px; font-size: 13px; }
+.section-navigation .button.selected { color: #252c36; background: #fff; border-color: #e0e4ea; box-shadow: 0 1px 3px #1b2a4310; }
+.compact-kpis > button, .compact-kpis > button:last-child { padding: 22px; }
+.compact-kpis strong { margin: 12px 0 6px; font-size: clamp(29px, 2.8vw, 38px); }
+.compact-kpis .kpi-label { font-size: 14px; color: #4e5969; }
+.compact-kpis small { color: #657081; font-size: 12px; }
+.dashboard-section-head h3 { font-size: 16px; }
+.dashboard-action b, .dashboard-trade b { font-size: 15px; }
+.dashboard-action small, .dashboard-trade small, .account-card p { font-size: 13px; line-height: 1.7; }
+.dashboard-action em { font-size: 13px; }
+.dashboard-action:focus-visible, .dashboard-trade:focus-visible, .review-task:focus-visible { outline-offset: 3px; border-radius: 6px; }
+.dashboard-trade-result small { font-size: 12px; }
+.account-card h3 { margin: 13px 0 6px; }
+.account-card .button { font-size: 13px; }
+.coverage-empty { min-height: 98px; padding: 14px 0; }
+.coverage-empty b { font-size: 16px; }
+.coverage-row p, .coverage-row small, .coverage-footnote { font-size: 13px; }
+.journal-navigator { border-radius: 10px; }
+.journal-choose small { color: #657081; }
+.journal-choose b { font-size: 16px; }
+.trade-header { padding-top: 26px; padding-bottom: 26px; }
+.instrument h2 { font-size: 25px; font-weight: 600; letter-spacing: -.5px; }
+.coin-icon { color: #536b9d; background: #f0f3f9; border: 1px solid #e6ebf4; }
+.position-grid .data-label { font-size: 13px; margin-bottom: 9px; }
+.position-grid .data-value { font-size: 18px; }
+.cycle-summary { background: #fafbfd; border-color: #e5e9ef; border-radius: 10px; }
+.cycle-summary-head { align-items: center; }
+.cycle-summary-head > strong { font-size: 34px; font-weight: 600; letter-spacing: -1px; }
+.cycle-facts span, .cycle-summary p { font-size: 13px; line-height: 1.7; }
+.cycle-facts b { font-size: 14px; margin-top: 5px; }
+.note-section summary { padding: 20px 0; }
+.note-section summary small { font-size: 13px; line-height: 1.7; }
+.note-section-body label { color: #444f60; }
+.note-section-body textarea { background: #fff; }
+.note-section-body textarea:focus { background: #fcfdff; }
+.note-section-body .helper { font-size: 13px; }
+.note-save-bar { background: #fff; border-top: 1px solid var(--line); margin-top: 8px; padding-top: 16px; }
+.ai-panel .ai-insight { color: #485466; line-height: 1.85; }
+.review-task { padding: 20px 12px; border-radius: 7px; }
+.review-task:hover { background: #f6f8fc; }
+.review-task b { font-size: 15px; }
+.review-task small { font-size: 13px; }
+.review-task strong { font-size: 13px; }
+.review-all-done { padding: 24px; border: 1px solid #deebe4; }
+.table-wrap { overscroll-behavior-x: contain; }
+table th { color: #647083; }
+table td { font-size: 13px; }
+dialog:not(#image-dialog) { border: 1px solid #e0e5ed; border-radius: 16px; box-shadow: 0 24px 80px #111b3226; }
+dialog::backdrop { background: #17223866; }
+#settings-dialog { width: 640px; padding: 0 28px 28px; }
+#settings-dialog .settings-header { position: sticky; top: 0; z-index: 3; background: #fff; padding-top: 26px; margin-bottom: 22px; }
+#settings-dialog .dialog-head { position: static; margin: 0; padding: 0 0 20px; align-items: flex-start; }
+#settings-dialog .dialog-head h2 { font-size: 23px; margin: 0 0 7px; }
+#settings-dialog .dialog-head p { color: var(--muted); font-size: 13px; margin: 0; }
+#settings-dialog .icon-button { background: #f3f5f8; border-radius: 9px; min-width: 38px; min-height: 38px; }
+.settings-tabs { display: flex; gap: 4px; padding: 4px; background: #eef1f5; border-radius: 10px; }
+.settings-tabs button { flex: 1; min-height: 40px; font-size: 14px; padding: 9px 14px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); }
+.settings-tabs button[aria-selected="true"] { background: #fff; border-color: #e2e6ed; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px #1c2d4410; }
+.settings-intro { margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.8; }
+#settings-dialog .exchange-connect { border: 1px solid #e2e7ef; padding: 0 18px 16px; border-radius: 10px; margin: 12px 0; scroll-margin-top: 160px; }
+#settings-dialog .exchange-connect:not([open]) { padding-bottom: 0; }
+#settings-dialog .exchange-connect > summary { min-height: 60px; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; cursor: pointer; list-style: none; }
+#settings-dialog .exchange-connect > summary::-webkit-details-marker { display: none; }
+#settings-dialog .exchange-connect > summary:after { content: '+'; font-size: 20px; color: #788399; margin-left: auto; font-weight: 400; }
+#settings-dialog .exchange-connect[open] > summary:after { content: '−'; }
+#settings-dialog .exchange-connect .badge { font-size: 11px; font-weight: 400; }
+#settings-dialog .exchange-connect .helper { font-size: 13px; }
+#settings-dialog input:not([type="checkbox"]), #settings-dialog select { background: #fff; min-height: 46px; font-size: 15px; }
+#settings-dialog label { font-size: 14px; color: #485365; }
+#settings-dialog .ai-connect { margin: 0; border: 0; padding: 0; }
+#settings-dialog .ai-connect > .panel-heading { margin-bottom: 12px; }
+#settings-dialog .ai-connect > .panel-heading h3 { font-size: 17px; }
+#settings-dialog .ai-connect-actions { display: flex; gap: 10px; flex-wrap: wrap; padding-top: 12px; }
+#settings-dialog .ai-connect-actions .button { min-height: 44px; }
+@media (prefers-reduced-motion: no-preference) {
+  .settings-tabs button, .review-task { transition: background-color 140ms ease, border-color 140ms ease; }
+}
+@media (max-width: 780px) {
+  html { scroll-padding-top: 12px; }
+  .sidebar { padding: 12px 18px; }
+  .sidebar .brand { font-size: 16px; }
+  .sidebar nav .nav-item { min-height: 58px; }
+  .sidebar nav .nav-item.active { background: #eef2fc; }
+  .topbar { height: 34px; }
+  .topbar #breadcrumb { color: #6d7684; }
+  .main-inner { padding: 14px 16px 0; }
+  .page-heading { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+  .page-heading h1 { font-size: 25px; letter-spacing: -.5px; }
+  .page-heading p { display: none; }
+  body[data-view="training"] .page-heading > div:first-child { flex: 1; }
+  .page-actions { width: auto; gap: 6px; flex-wrap: nowrap; }
+  .page-actions > .button { display: inline-flex!important; width: 42px; min-height: 42px; justify-content: center; align-items: center; padding: 8px; }
+  .page-actions #sync-icon { margin: 0; font-size: 20px; }
+  .page-actions #sync-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .page-tools > summary { min-height: 40px; font-size: 13px; padding: 8px 12px; background: #fff; border-color: var(--line); }
+  .page-tools-menu { width: 220px; }
+  .page-actions .page-tools-menu .button { display: flex; font-size: 14px; }
+  .section-navigation { padding: 4px; margin-bottom: 18px; gap: 4px; }
+  .section-navigation .button { min-height: 40px; padding: 9px 14px; font-size: 14px; }
+  .toolbar #sync-days { width: 112px; max-width: 112px; padding-right: 26px; }
+  .compact-kpis > button, .compact-kpis > button:nth-child(2) { padding: 16px; min-height: 148px; }
+  .compact-kpis strong { font-size: 29px; margin: 8px 0 7px; }
+  .compact-kpis .kpi-label { font-size: 12px; }
+  .compact-kpis small { font-size: 12px; line-height: 1.6; }
+  .compact-kpis > button:last-child { padding: 15px 16px; }
+  .compact-kpis > button:last-child strong { font-size: 25px; }
+  .dashboard-action b, .dashboard-trade b { font-size: 15px; }
+  .dashboard-action small, .dashboard-trade small { font-size: 12px; }
+  .dashboard-action em { max-width: none; font-size: 12px; }
+  .dashboard-actions, .dashboard-recent, .dashboard-accounts, .stop-coverage { padding: 20px 18px; }
+  .coverage-empty { min-height: 88px; gap: 12px; }
+  .coverage-empty b { font-size: 15px; }
+  .trade-header { padding: 20px 18px; }
+  .instrument h2 { font-size: 23px; }
+  .position-grid .data-value { font-size: 17px!important; }
+  .position-grid > div:last-child .data-value.neutral { font-size: 14px!important; }
+  .position-grid .data-label { font-size: 13px!important; }
+  .cycle-summary-head { flex-wrap: wrap; gap: 12px; }
+  .cycle-summary-head > strong { font-size: 30px; }
+  .cycle-facts { gap: 16px 12px; }
+  .cycle-facts span { font-size: 12px; }
+  .notes-panel .panel-heading h3 { font-size: 18px; }
+  .note-section summary { padding: 18px 0; }
+  .note-section summary small { font-size: 12px; }
+  .note-save-bar { bottom: calc(75px + env(safe-area-inset-bottom)); }
+  .review-worklist h2 { font-size: 22px; line-height: 1.5; }
+  .review-task { padding: 18px 4px; gap: 12px; }
+  .review-task small { font-size: 12px; }
+  .review-task strong { font-size: 12px; }
+  #settings-dialog { width: calc(100% - 20px); max-width: 560px; padding: 0 18px 20px; max-height: calc(100dvh - 24px); }
+  #settings-dialog .settings-header { padding-top: 20px; }
+  #settings-dialog .dialog-head { padding-bottom: 16px; }
+  #settings-dialog .dialog-head h2 { font-size: 21px; }
+  #settings-dialog .icon-button { min-width: 44px; min-height: 44px; }
+  .settings-tabs button { min-height: 44px; }
+  #settings-dialog .exchange-connect { padding-left: 14px; padding-right: 14px; }
+  #settings-dialog .exchange-connect > summary { font-size: 14px; min-height: 64px; }
+  #settings-dialog input:not([type="checkbox"]), #settings-dialog select { font-size: 16px; }
+  #settings-dialog .ai-connect-actions { display: grid; grid-template-columns: 1fr; }
+  .settings-intro { font-size: 13px; }
+}

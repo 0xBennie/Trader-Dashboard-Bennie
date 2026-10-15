@@ -284,10 +284,10 @@ async function saveNotes(silent=false) {
   }catch(error){toast(error.message);return false;}
   finally{savingNotes=false;updateSaveButton();}
 }
-async function sync() { const x=syncExchange();if(x!=='binance'){if(!state.exchanges?.[x]?.configured){openAISettings();toast('先在连接设置中填写 '+exchangeName({exchange:x})+' 只读 API 凭证。');return;}try{await api(`/api/exchanges/${x}/sync`,{days:Number($('#sync-days').value)||30});toast('开始同步 '+exchangeName({exchange:x})+'。');await refresh(false);}catch(error){toast(error.message);}return;} if(!state.credentials_configured){openAISettings();toast('先在连接设置中填写 Binance 只读 API 凭证。');return;}try{await api('/api/sync',{days:Number($('#sync-days').value)});toast('开始读取 Binance 数据。');setTimeout(()=>refresh(false).catch(e=>toast(e.message)),150);}catch(error){toast(error.message);} }
+async function sync() { const x=syncExchange();if(x!=='binance'){if(!state.exchanges?.[x]?.configured){openAISettings('exchanges');toast('先在连接设置中填写 '+exchangeName({exchange:x})+' 只读 API 凭证。');return;}try{await api(`/api/exchanges/${x}/sync`,{days:Number($('#sync-days').value)||30});toast('开始同步 '+exchangeName({exchange:x})+'。');await refresh(false);}catch(error){toast(error.message);}return;} if(!state.credentials_configured){openAISettings('exchanges');toast('先在连接设置中填写 Binance 只读 API 凭证。');return;}try{await api('/api/sync',{days:Number($('#sync-days').value)});toast('开始读取 Binance 数据。');setTimeout(()=>refresh(false).catch(e=>toast(e.message)),150);}catch(error){toast(error.message);} }
 async function analyze() { if(!await saveNotes(true))return;const gate=JournalWorkflow.aiEntry(state,chosen(),reports(),navigator.onLine);if(gate.action!=='analyze'){if(gate.action==='ai-settings')openAISettings();else if(gate.action==='dashboard-journal'){view='journal';render();focusNoteField('thesis');}toast(gate.hint);return;}try{const result=await api('/api/analyze',{id:chosen().id});reportId=result.id;view='review';await refresh();toast('AI 复盘已开始，报告会自动保存。');}catch(error){toast(error.message);} }
 
-function openAISettings(){JournalAISettings.show(state.ai);JournalExchanges.show(state.exchanges);$('#settings-status').textContent=`Binance：${state.credentials_configured?'已保存密钥':'尚未配置'}。${state.sync.error||'读取持仓、成交与账单。'}`;$('#settings-dialog').showModal();}
+function openAISettings(panel='ai'){JournalAISettings.show(state.ai);JournalExchanges.show(state.exchanges);$('#settings-status').textContent=`Binance：${state.credentials_configured?'已保存密钥':'尚未配置'}。${state.sync.error||'读取持仓、成交与账单。'}`;JournalInterface.settings(panel);$('#settings-dialog').showModal();}
 JournalAISettings.bind();
 function refreshAIEntries(){document.querySelectorAll('[data-ai-entry]').forEach(el=>{el.outerHTML=JournalWorkflow.aiButton(state,chosen(),reports(),navigator.onLine);});const panel=$('.ai-panel');if(panel){panel.classList.toggle('ai-unconfigured',!state.ai?.available);panel.querySelector('.model-chip').textContent=state.ai?.available?'已配置':'未配置';}}
 document.addEventListener('click', async event=>{
@@ -322,7 +322,7 @@ document.addEventListener('click', async event=>{
     if(action==='view-report'){if(!await saveNotes(true))return;view='review';reportId=null;render();}
     if(action==='image'){$('#full-image').src=button.dataset.image||chosen().image;$('#image-dialog').showModal();}
     if(action==='close-image')$('#image-dialog').close();
-    if(action==='settings'||action==='ai-settings'){openAISettings();const exchange=button.dataset.connectExchange;if(['okx','bybit'].includes(exchange)){const section=$('#connect-'+exchange);section.open=true;section.scrollIntoView({block:'start'});section.querySelector('input')?.focus({preventScroll:true});}}
+    if(action==='settings'||action==='ai-settings'){openAISettings(action==='settings'?'exchanges':'ai');const exchange=button.dataset.connectExchange;if(['binance','okx','bybit'].includes(exchange)){const section=$('#connect-'+exchange);section.open=true;section.scrollIntoView({block:'start'});section.querySelector('input')?.focus({preventScroll:true});}}
     if(action==='ai-check'){
       const payload=JournalAISettings.payload($('#ai-settings-form'));JournalAISettings.busy(true);$('#ai-setting-status').textContent='正在读取模型列表，不调用生成…';
       try{JournalAISettings.modelResult(await api('/api/ai/models',payload));}
