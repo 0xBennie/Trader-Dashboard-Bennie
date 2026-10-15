@@ -3,7 +3,7 @@
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const time=x=>x?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Hong_Kong',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(x)):'时间待核对';
   const group=view=>({analytics:'training',trades:'journal',review:'progress'}[view]||view);
-  const sections={training:[['training','账户与风险'],['analytics','收益统计']],journal:[['journal','持仓与日志'],['trades','成交明细']],progress:[['progress','复盘待办'],['review','AI 报告']]};
+  const sections={training:[['training','账户与风险'],['analytics','收益统计']],journal:[['journal','持仓与日志'],['trades','成交明细']],progress:[['progress','交易回顾'],['review','AI 报告']]};
   function navigation(view){return (sections[group(view)]||[]).map(([v,label])=>`<button class="button ${v===view?'selected':''}" data-view="${v}" aria-current="${v===view?'page':'false'}">${label}</button>`).join('');}
   function aiEntry(state,journal,reports=[],online=true){
     const result=(status,label,action,hint,disabled=false)=>({status,label,action,hint,disabled});
@@ -24,10 +24,20 @@
   }
   function progress(state){
     const p=state?.review_progress;
-    if(!p)return '<section class="review-worklist" aria-busy="true"><h2>正在读取复盘进度…</h2></section>';
-    const done=p.personal.numerator,total=p.personal.denominator,ai=p.ai.numerator;
-    const rows=(items,complete)=>items.map(j=>`<button class="review-task" data-action="dashboard-journal" data-open-journal="${esc(j.id)}" data-focus-field="reflection"><span><b>${esc(j.symbol)}</b><small>${({binance:'Binance',okx:'OKX',bybit:'Bybit',variational:'Variational'}[j.exchange||'binance']||'交易所')} · ${time(j.closed_at)} 平仓 · ${complete?'本人复盘已保存 · ':''}${j.ai_complete?'AI 报告已生成':'尚无 AI 报告'}</small></span><strong>${complete?'查看复盘':'开始复盘'} →</strong></button>`).join('');
-    return `<section class="review-worklist"><div class="dashboard-section-head"><div><span class="eyebrow">近 30 天 · 已确认平仓的交易</span><h2>${total?`已完成 ${done} / ${total} 笔本人复盘`:'从第一笔平仓记录开始'}</h2></div><span class="badge blue">AI 报告 ${ai} / ${total}</span></div>${total?`<progress aria-label="本人复盘完成进度" value="${done}" max="${total}"></progress>`:''}<details class="review-method"><summary>如何计数</summary><p class="helper">本人复盘与 AI 报告分别计数，不受风险政策开关影响。外部截图未确认平仓时间时不计入。</p></details>${p.pending.length?rows(p.pending.slice(0,5),false):`<div class="review-all-done"><b>${total?'这段时间的本人复盘已全部完成':'暂时没有已确认平仓的交易'}</b><p>${total?'新交易结束后，会继续出现在这里。':'已有持仓仍可记录观察，成交归档后会自动进入待办。'}</p><button class="button" data-action="dashboard-journal">查看交易日志</button></div>`}${p.pending.length>5?`<details class="more-reviews"><summary>其余 ${p.pending.length-5} 笔待复盘</summary>${rows(p.pending.slice(5),false)}</details>`:''}${p.completed.length?`<details class="completed-reviews"><summary>已完成的本人复盘 · ${p.completed.length}</summary>${rows(p.completed,true)}</details>`:''}</section>`;
+    if(!p)return '<section class="review-worklist" aria-busy="true"><h2>正在整理交易记录…</h2></section>';
+    const records=new Map((state.journals||[]).map(j=>[j.id,j]));
+    const items=[...p.pending,...p.completed].sort((a,b)=>(b.closed_at||0)-(a.closed_at||0));
+    const venue=j=>({binance:'Binance',okx:'OKX',bybit:'Bybit',variational:'Variational'}[j.exchange||'binance']||'交易所');
+    const rows=list=>list.map(item=>{
+      const j={...(records.get(item.id)||{}),...item},c=root.JournalDashboard?.cycle(j);
+      const verified=j.execution?.history_complete===true&&j.execution?.fees&&c?.net!==null&&Number.isFinite(c?.net);
+      const amount=verified?`${c.net>0?'+':''}${c.net.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'待核对';
+      const costs=verified?(c.funding===null?'扣手续费 · 资金费未分摊':'含手续费与已核对资金费'):'查看原始成交证据';
+      const note=String(j.reflection||j.review_next||j.review_keep||'').trim();
+      const direction=({LONG:'做多',SHORT:'做空'})[j.execution?.direction||j.direction]||'';
+      return `<button class="review-task trading-recap-row" data-action="dashboard-journal" data-open-journal="${esc(j.id)}"><span class="trading-recap-copy"><span class="trading-recap-title"><b>${esc(j.symbol)}</b>${direction?`<i>${direction}</i>`:''}${j.ai_complete?'<i class="recap-ai">AI 报告已保存</i>':''}</span><small>${venue(j)} · ${time(j.closed_at)} 平仓</small>${note?`<span class="trading-recap-note">${esc(note.slice(0,100))}${note.length>100?'…':''}</span>`:''}</span><span class="trading-recap-result"><b class="${verified?(c.net>0?'positive':c.net<0?'negative':''):''}">${amount}${verified?' <i>USDT</i>':''}</b><small>${costs}${verified&&c.otherFees.length?' · 另有其他币种费用':''}</small><em>查看交易 →</em></span></button>`;
+    }).join('');
+    return `<section class="review-worklist trading-recap"><div class="dashboard-section-head"><div><span class="eyebrow">近 30 天 · ${items.length} 笔已确认平仓</span><h2>最近交易，直接回看</h2><p class="helper">回看成交结果和已采集的过程证据，有想法再留一句。</p></div><button class="button quiet small" data-view="analytics">查看收益统计 ↗</button></div>${items.length?rows(items.slice(0,8)):'<div class="review-all-done"><b>暂时没有已确认平仓的交易</b><p>接入的交易所会自动记录成交，平仓后在这里查看。</p><button class="button" data-action="dashboard-journal">查看交易日志</button></div>'}${items.length>8?`<details class="more-reviews"><summary>更早的 ${items.length-8} 笔交易</summary>${rows(items.slice(8))}</details>`:''}<details class="review-method"><summary>记录情况与数据口径</summary><p class="helper">${p.personal.numerator} 笔有本人笔记 · ${p.ai.numerator} 笔有平仓后 AI 报告。笔记按需填写，AI 报告单独保留。仅展示已确认平仓的记录；历史不完整、未分摊资金费和其他币种费用会单独标明。</p></details></section>`;
   }
   const api={group,navigation,aiEntry,aiButton,progress};
   if(typeof module!=='undefined')module.exports=api;else root.JournalWorkflow=api;

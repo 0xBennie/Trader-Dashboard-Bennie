@@ -37,3 +37,12 @@ test('unchanged notes show a disabled saved button and retain fields for editing
  const html=run('notesForm(fixture.journals[0])');
  assert.match(html,/type="submit" disabled>已保存/);assert.match(html,/name="thesis"/);
 });
+
+test('structured learning fields are optional and retain their saved values',()=>{
+ const html=run('fixture.journals[2].review_next="先核对仓位";notesForm(fixture.journals[2])');
+ assert.match(html,/optional-review-fields" data-note-section="advanced" >/);
+ assert.match(html,/深入复盘（可选） · 已有记录/);assert.match(html,/先核对仓位/);
+ assert.doesNotMatch(html,/保存后计入本人复盘/);
+ const expanded=run('noteSections.set("c",["reflection","advanced"]);notesForm(fixture.journals[2])');
+ assert.match(expanded,/data-note-section="advanced" open/);
+});

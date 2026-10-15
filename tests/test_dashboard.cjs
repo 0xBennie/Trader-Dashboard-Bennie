@@ -57,10 +57,11 @@ test('unconnected providers use compact entries while paused and historical acco
  assert.match(d.accountCoverage(s,now),/上次快照空仓/);
 });
 
-test('evidence problems and unfinished reviews precede optional AI setup without losing journal destinations',()=>{
- const s=state();s.recorder.status='stopped';s.journals=[{id:'closed-1',symbol:'ETHUSDT',execution:{closed_ms:now-1000}}];
+test('home flags recording issues without making optional notes and AI configuration chores',()=>{
+ const s=state();s.recorder.status='stopped';s.journals=[{id:'closed-1',symbol:'ETHUSDT',execution:{closed_ms:now-1000}},{id:'open-1',status:'持仓中',symbol:'BTCUSDT'}];
  const html=d.nextActions(s,now);
- assert.ok(html.indexOf('核对自动记录')<html.indexOf('待本人复盘'));
- assert.ok(html.indexOf('待本人复盘')<html.indexOf('配置 AI 服务'));
- assert.match(html,/data-open-journal="closed-1"/);assert.match(html,/data-focus-field="reflection"/);
+ assert.match(html,/核对自动记录/);assert.match(html,/data-action="recorder-settings"/);
+ assert.doesNotMatch(html,/待本人复盘|补一句入场理由|配置 AI 服务/);
+ s.recorder.status='running';assert.match(d.nextActions(s,now),/Binance 自动记录正常/);
+ const home=d.overview(s,now);assert.match(home,/交易回顾/);assert.doesNotMatch(home,/kpi-review-track|待复盘/);
 });

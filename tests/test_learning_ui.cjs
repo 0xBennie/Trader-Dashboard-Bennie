@@ -43,3 +43,8 @@ test('changing a review refreshes a selected filtered report and ignores older r
  const updating=mod.changed();assert.match(pending[2].url,/days=90&exchange=okx/);pending[2].resolve({...empty,closed_count:8});await updating;
  assert.match(mod.render(state),/8 笔已核实平仓/);
 });
+
+test('learning tools are collapsed on arrival and an opted-in reminder opens them directly',()=>{
+ assert.match(ui.render({review_learning:empty}),/<details class="optional-review-tools" >/);
+ assert.match(ui.reminder({review_learning:{actions:[{instruction:'保留的提醒',symbol:'ETHUSDT',exchange:'binance',archived:0}]}}),/data-action="open-learning"/);
+});

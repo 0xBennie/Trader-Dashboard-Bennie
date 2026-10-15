@@ -23,9 +23,17 @@ test('secondary destinations keep the correct primary navigation group',()=>{
  assert.equal(w.group('review'),'progress');assert.equal(w.group('analytics'),'training');assert.equal(w.group('trades'),'journal');
  assert.match(w.navigation('review'),/data-view="review" aria-current="page"/);
 });
-test('progress distinguishes a fully reviewed period from no eligible history and escapes user text',()=>{
+test('review workspace presents closed trades rather than completion targets and escapes user text',()=>{
  const p={personal:{numerator:1,denominator:1},ai:{numerator:0,denominator:1},pending:[],completed:[{id:'x" onclick="evil',symbol:'<img>',personal_complete:true}]};
- const html=w.progress({review_progress:p});assert.match(html,/已完成 1 \/ 1/);assert.match(html,/已全部完成/);assert.doesNotMatch(html,/<img>|onclick="evil/);
+ const html=w.progress({review_progress:p});assert.match(html,/最近交易，直接回看/);assert.match(html,/1 笔有本人笔记/);assert.doesNotMatch(html,/<img>|onclick="evil|<progress|待复盘|完成率/);
  p.personal={numerator:0,denominator:0};p.ai.denominator=0;p.completed=[];
- assert.match(w.progress({review_progress:p}),/暂时没有已确认平仓/);assert.doesNotMatch(w.progress({review_progress:p}),/已全部完成/);
+ assert.match(w.progress({review_progress:p}),/暂时没有已确认平仓/);
+});
+test('review rows use verified cycle results, retain cost gaps and order by close time',()=>{
+ global.JournalDashboard=require('../static/dashboard.js');
+ try{
+ const rows=[{id:'old',symbol:'ETHUSDT',closed_at:100,ai_complete:true},{id:'new',symbol:'BTCUSDT',closed_at:200}];
+ const state={review_progress:{personal:{numerator:0,denominator:2},ai:{numerator:1,denominator:2},pending:rows,completed:[]},journals:rows.map(j=>({...j,exchange:'binance',direction:'LONG',reflection:'<script> note',execution:{opened_ms:1,closed_ms:j.closed_at,history_complete:j.id==='old',realized_pnl:'20',fees:{USDT:'1',BNB:'0.1'}}}))};
+ const html=w.progress(state);assert.ok(html.indexOf('BTCUSDT')<html.indexOf('ETHUSDT'));assert.match(html,/\+19\.00/);assert.match(html,/资金费未分摊/);assert.match(html,/其他币种费用/);assert.match(html,/AI 报告已保存/);assert.match(html,/&lt;script&gt;/);assert.match(html,/待核对/);assert.doesNotMatch(html,/data-focus-field="reflection"/);
+ }finally{delete global.JournalDashboard;}
 });
