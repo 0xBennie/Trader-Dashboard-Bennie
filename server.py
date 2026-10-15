@@ -22,6 +22,7 @@ import training
 import pretrade_ai
 import pretrade_evidence
 import auth
+import sharing
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -137,9 +138,19 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path)
         try:
             public_files = {'/login': 'login.html', '/login.js': 'login.js', '/login.css': 'login.css', '/sw.js': 'sw.js'}
+            public_files.update({'/share-render.js': 'share-render.js', '/share-public.js': 'share-public.js', '/share.css': 'share.css'})
             if route.path in public_files:
                 path = ROOT / 'static' / public_files[route.path]
                 return self.send(200, path.read_bytes(), mimetypes.guess_type(path.name)[0])
+            if route.path.startswith(('/s/', '/api/public/shares/')):
+                prefix = '/s/' if route.path.startswith('/s/') else '/api/public/shares/'
+                report = sharing.public_report(route.path[len(prefix):])
+                headers = {'X-Robots-Tag': 'noindex, nofollow, noarchive'}
+                if report is None:
+                    return self.send(404, '分享不存在、已过期或已被撤销。', 'text/plain; charset=utf-8', headers=headers)
+                if prefix == '/s/':
+                    return self.send(200, (ROOT/'static'/'share-public.html').read_bytes(), 'text/html; charset=utf-8', headers=headers)
+                return self.send(200, report, headers=headers)
             if not self.require_login(route.path):
                 return
             if route.path == "/api/state":
@@ -151,6 +162,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, data)
             if route.path == "/api/ai":
                 return self.send(200, ai_provider.status())
+            if route.path == '/api/shares':
+                return self.send(200, sharing.listing())
             if route.path == "/api/v1/training/today":
                 return self.send(200, training.today())
             if route.path == "/api/v1/risk-policy":
@@ -263,6 +276,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(410, {"error": "策略实验与历史回测已移除，不再创建实验。"})
             if path == "/api/journals":
                 return self.send(200, journal.save_journal(payload))
+            if path == '/api/shares/preview':
+                return self.send(200, sharing.preview(payload))
+            if path == '/api/shares/publish':
+                return self.send(200, sharing.publish(payload))
+            if path == '/api/shares/revoke':
+                return self.send(200, sharing.revoke(payload))
             if path == "/api/recorder":
                 current = {**recorder.DEFAULTS, **journal.kv("recorder_settings", {})}
                 if "interval" in payload:

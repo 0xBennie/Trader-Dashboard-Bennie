@@ -45,6 +45,8 @@ def init():
         CREATE TABLE IF NOT EXISTS market_snapshots (id INTEGER PRIMARY KEY, journal_id TEXT, captured INTEGER, data TEXT);
         CREATE TABLE IF NOT EXISTS auto_reviews (event_id TEXT PRIMARY KEY, journal_id TEXT, due INTEGER, status TEXT, analysis_id TEXT);
         ''')
+        import sharing
+        sharing.init(db)
     DB.chmod(0o600)
 
 
@@ -58,6 +60,9 @@ def kv(key, default=None, db=None):
 
 def set_kv(db, key, value):
     db.execute("INSERT OR REPLACE INTO kv VALUES(?,?)", (key, json.dumps(value, ensure_ascii=False)))
+    if key in ('snapshot', 'exchange:okx:snapshot', 'exchange:bybit:snapshot'):
+        import sharing
+        sharing.record_coverage(db, 'binance' if key == 'snapshot' else key.split(':')[1], value)
 
 
 def all_journals(db):

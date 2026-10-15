@@ -1,0 +1,10 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const report=require('../static/share-render.js');
+function fixture(mode='year',year=2026){
+ const start=Date.UTC(year,0,1),end=Date.UTC(year+1,0,1);return {mode,period:String(year),show_amounts:false,asset:'USDT',days:Array.from({length:(end-start)/86400000},(_,i)=>({date:new Date(start+i*86400000).toISOString().slice(0,10),coverage:'unknown',reviews:0,closed:0})),bars:[],details:[],note:''};
+}
+test('all year cells fit inside card; leap and 54 week layouts do not clip',()=>{for(const year of [2024,2026,2012]){const r=fixture('year',year),g=report.geometry(r);assert.equal(new Set(g.cells.map(c=>`${c.x}/${c.y}`)).size,r.days.length);for(const c of g.cells){assert(c.x+c.w<=860);assert(c.y+c.h+20<450+g.activityH-37);}assert(report.height(r)>450+g.activityH+200);}});
+test('monthly grid reserves legend space after the last row',()=>{const r=fixture('month');r.days=r.days.slice(0,31);const g=report.geometry(r);assert(g.cells.every(c=>c.y+c.h+15<=450+g.activityH-37));});
+test('hidden values never enter day label even if malformed input contains net',()=>{const r=fixture(),d={date:'2026-10-01',coverage:'full',reviews:1,closed:2,sign:1,net:'1234567.89'};assert(!report.dayText(d,r).includes('1234567'));assert.match(report.dayText(d,r),/净盈利/);assert.match(report.dayText({...d,coverage:'unknown'},r),/盈亏未知/);});
+test('contribution activity, unavailable data and negative pnl have distinct tones',()=>{const d={coverage:'full',reviews:0,sign:-1};assert.notEqual(report.cellColor(d,'pnl'),report.cellColor(d,'reviews'));assert.notEqual(report.cellColor({...d,coverage:'unknown'},'reviews'),report.cellColor(d,'reviews'));assert.notEqual(report.cellColor({...d,reviews:1},'reviews'),report.cellColor({...d,reviews:4},'reviews'));});
+test('long details increase export height rather than dropping off canvas',()=>{const r=fixture();const base=report.height(r);r.details=Array.from({length:8},()=>({}));r.note='个人感想';assert.equal(report.height(r)-base,104+8*49+112);});

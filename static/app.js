@@ -76,7 +76,8 @@ function chrome() {
   $('#updated-time').textContent=complete?`${date(snapshot.captured_at)} 更新`:'尚未同步';
   $('#journal-count').textContent=state.journals.length;
   const notice=$('#sync-notice');
-  if (sync.status==='failed') { notice.hidden=false; notice.className='notice'; notice.textContent=sync.error+(complete?' 页面显示上次成功同步的快照。':' 暂无已验证的账户数据。'); }
+  if (view==='share') notice.hidden=true;
+  else if (sync.status==='failed') { notice.hidden=false; notice.className='notice'; notice.textContent=sync.error+(complete?' 页面显示上次成功同步的快照。':' 暂无已验证的账户数据。'); }
   else if (running) { notice.hidden=false; notice.className='notice info'; notice.textContent='正在读取持仓、成交及账单。完整同步后会一次性更新，已有日志会保留。'; }
   else if (complete && Date.now()-snapshot.captured_at>300000) { notice.hidden=false; notice.className='notice info'; notice.textContent=`持仓与浮盈亏来自 ${date(snapshot.captured_at)} 的快照。点击“同步 Binance”刷新；此页面不是实时行情。`; }
   else notice.hidden=true;
@@ -84,7 +85,7 @@ function chrome() {
   document.body.dataset.view=view;
   if(location.hash!=='#'+view)history.replaceState(null,'','#'+view);
   $('#section-navigation').innerHTML=JournalWorkflow.navigation(view);
-  const labels={training:['总览','账户与风险','先核对账户覆盖，再处理今天的风险与待办。'],progress:['复盘','复盘','从实际执行出发，留下下一次要做的改变。'],journal:['交易日志','持仓与日志','成交自动归档，仓位持续留档。你只需要补充当时的想法。'],trades:['成交明细','成交明细','成交、手续费与资金费分开记录，不把划转算成收益。'],review:['AI 报告','AI 报告','结合原始截图、交易计划与成交证据，审视每一次决策。'],analytics:['收益统计','收益统计','按交易所账单计算，只展示已有数据能支持的结论。']};
+  const labels={training:['总览','账户与风险','先核对账户覆盖，再处理今天的风险与待办。'],progress:['复盘','复盘','从实际执行出发，留下下一次要做的改变。'],journal:['交易日志','持仓与日志','成交自动归档，仓位持续留档。你只需要补充当时的想法。'],trades:['成交明细','成交明细','成交、手续费与资金费分开记录，不把划转算成收益。'],review:['AI 报告','AI 报告','结合原始截图、交易计划与成交证据，审视每一次决策。'],analytics:['收益统计','收益统计','按交易所账单计算，只展示已有数据能支持的结论。'],share:['分享','分享工作台','把交易和复盘，留成一张自己的成绩单。']};
   const l=labels[view]; $('#breadcrumb').innerHTML=`工作台 <span>/</span> ${l[0]}`; $('#page-title').textContent=l[1]; $('#page-description').textContent=l[2];
   $('#tabs-label').innerHTML=`${l[0]} <span>${view==='journal'?String(state.journals.length).padStart(2,'0'):''}</span>`;
   document.querySelectorAll('[data-view]').forEach(b=>{const active=b.closest('.sidebar')?b.dataset.view===JournalWorkflow.group(view):b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});
@@ -126,7 +127,7 @@ function journalView() {
   const imageSources=[...(Array.isArray(j.images)?j.images:[]),...(j.image?[{url:j.image,label:'你补充的原始截图',timeframe:j.timeframe}]:[])];
   const images=imageSources.filter((item,index,all)=>item&&typeof item.url==='string'&&/^\/assets\/[A-Za-z0-9_-]+\.(png|jpe?g|webp)$/.test(item.url)&&all.findIndex(x=>x?.url===item.url)===index);
   return `<div class="journal-selection">${filters}<label class="mobile-journal-picker">当前交易<select id="mobile-journal-picker">${visible.map(n=>`<option value="${escapeHTML(n.id)}" ${n.id===j.id?'selected':''}>${escapeHTML(n.symbol)} · ${exchangeName(n)} · ${escapeHTML(n.status)} · ${n.execution?.opened_ms?'入场 ':'记录于 '}${date(n.execution?.opened_ms||n.created)}</option>`).join('')}</select></label></div>
-    <div class="journal-layout"><div class="journal-main"><section class="panel">${currentPosition(j)}${JournalDashboard.cycleSummary(j)}</section>${notesForm(j)}<details class="journal-evidence panel" ${evidenceSections.get(j.id)?'open':''}><summary>行情、截图与过程证据</summary>
+    <div class="journal-layout"><div class="journal-main"><section class="panel">${currentPosition(j)}${JournalDashboard.cycleSummary(j)}<div class="journal-share-entry"><button class="button" data-action="share-trade">分享这笔交易 ↗</button></div></section>${notesForm(j)}<details class="journal-evidence panel" ${evidenceSections.get(j.id)?'open':''}><summary>行情、截图与过程证据</summary>
     <div id="automatic-market">${external(j)?externalSnapshot(j):JournalRecorder.market(j)}</div>
     ${images.map(item=>`<details class="original-image"><summary>查看${escapeHTML(item.label||'交易截图')} · ${escapeHTML(item.timeframe||j.timeframe)}</summary><button class="chart-button" data-action="image" data-image="${escapeHTML(item.url)}" aria-label="放大${escapeHTML(item.label||'交易截图')}"><img class="chart-image" src="${escapeHTML(item.url)}" alt="${escapeHTML(j.symbol)} ${escapeHTML(item.label||'用户提供的历史截图')}"><span class="expand-label">⤢ 查看原图</span></button></details>`).join('')}
     <div class="connection-inset">${external(j)?'用户截图已归档；未接入 Variational 自动采集，当前仓位与挂单状态待核对。':position().length?`持仓数据：${date(journalAccount(j).snapshot.captured_at,true)} 快照。持仓均价不等于单笔成交价。`:j.execution?`已关联 ${exchangeName(j)} 实际成交${j.execution.closed_ms?' · '+date(j.execution.closed_ms,true)+' 已平仓':''}。`:'记录字段待核对，尚未关联特定成交。'} </div>
@@ -230,7 +231,7 @@ function reviewView() {
 
 function analyticsView() { return ledgerPicker()+JournalAnalytics.render({...ledgerAccount(),exchange:ledgerExchange},analyticsDay,analyticsMonth); }
 
-function render() { if(renderedView)for(const name of expandablePanels){const panel=$('.'+name);if(panel)panelExpansion.set(renderedView+':'+name,panel.open);} const previous=$('#plan-form');if(previous){noteSections.set(previous.dataset.journalId,[...previous.querySelectorAll('[data-note-section][open]')].map(d=>d.dataset.noteSection));evidenceSections.set(previous.dataset.journalId,Boolean($('.journal-evidence')?.open));} if(state)chrome(); else document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal'; $('#content').innerHTML=JournalTraining.routes.includes(view)?JournalTraining.render(view):({journal:journalView,trades:tradesView,review:reviewView,analytics:analyticsView}[view])(); if(view==='trades')renderTrades(); for(const name of expandablePanels){const panel=$('.'+name),open=panelExpansion.get(view+':'+name);if(panel&&open!==undefined)panel.open=open;}renderedView=view; }
+function render() { if(renderedView)for(const name of expandablePanels){const panel=$('.'+name);if(panel)panelExpansion.set(renderedView+':'+name,panel.open);} const previous=$('#plan-form');if(previous){noteSections.set(previous.dataset.journalId,[...previous.querySelectorAll('[data-note-section][open]')].map(d=>d.dataset.noteSection));evidenceSections.set(previous.dataset.journalId,Boolean($('.journal-evidence')?.open));} if(state)chrome(); else document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal'; $('#content').innerHTML=JournalTraining.routes.includes(view)?JournalTraining.render(view):({journal:journalView,trades:tradesView,review:reviewView,analytics:analyticsView,share:()=>JournalSharing.render(state)}[view])(); if(view==='share')JournalSharing.mount(); if(view==='trades')renderTrades(); for(const name of expandablePanels){const panel=$('.'+name),open=panelExpansion.get(view+':'+name);if(panel&&open!==undefined)panel.open=open;}renderedView=view; }
 async function refresh(renderBody=true) { state=await api('/api/state'); if(!state.journals.some(j=>j.id===selectedId))selectedId=state.journals[0]?.id; chrome(); if(renderBody&&!dirty)render(); }
 async function saveNotes(silent=false) {
   const form=$('#plan-form'); if(!form||!dirty)return true;
@@ -263,6 +264,7 @@ document.addEventListener('click', async event=>{
     if(button.dataset.analyticsDay){analyticsDay=button.dataset.analyticsDay;render();return;}
     if(button.dataset.analyticsMonth){analyticsMonth=button.dataset.analyticsMonth;render();return;}
     if(button.dataset.resolve){const key=button.dataset.resolve;if(button.dataset.version==='saved')$('#plan-form').elements[key].value=chosen()[key]??'';editBase[key]=chosen()[key]??'';keepDraft();render();return;}
+    if(button.dataset.action==='share-trade'){if(!await saveNotes(true))return;JournalSharing.openTrade(chosen());view='share';render();window.scrollTo(0,0);return;}
     if(button.dataset.view){if(!await saveNotes(true))return;view=button.dataset.view;render();window.scrollTo(0,0);return;}
     if(button.dataset.journal){if(!await saveNotes(true))return;selectedId=button.dataset.journal;try{window.localStorage.setItem('selected-journal',selectedId);}catch{}reportId=null;render();return;}
     if(button.dataset.report){reportId=button.dataset.report;render();return;}
@@ -333,7 +335,7 @@ document.addEventListener('change',async event=>{
   if(event.target.id==='review-journal'){selectedId=event.target.value;try{window.localStorage.setItem('selected-journal',selectedId);}catch{}reportId=null;render();}
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
-window.addEventListener('hashchange',()=>{const route=location.hash.slice(1)==='strategies'?'training':location.hash.slice(1);if(['training','progress','journal','trades','review','analytics'].includes(route)&&!dirty){view=route;render();}});
+window.addEventListener('hashchange',()=>{const route=location.hash.slice(1)==='strategies'?'training':location.hash.slice(1);if(['training','progress','journal','trades','review','analytics','share'].includes(route)&&!dirty){view=route;render();}});
 let pollActive=false;
 setInterval(async()=>{
   if(!state||pollActive||document.hidden)return;
@@ -343,11 +345,12 @@ setInterval(async()=>{
     await refresh(false);
     const overview=$('#today-account-overview');if(overview&&!overview.contains(document.activeElement)){const methodOpen=Boolean(overview.querySelector('.coverage-method')?.open);overview.innerHTML=JournalDashboard.overview(state);const method=overview.querySelector('.coverage-method');if(method)method.open=methodOpen;}
     const safe=!dirty&&!JournalTraining.routes.includes(view)&&!document.activeElement?.closest('#plan-form,select,dialog');
-    if(safe&&(view==='journal'||view==='review'||oldIds!==state.journals.map(j=>j.id).join(',')||oldReports!==JSON.stringify(state.analyses.map(a=>[a.id,a.status]))||old.sync.status==='running'))render();
+    if(safe&&view!=='share'&&(view==='journal'||view==='review'||oldIds!==state.journals.map(j=>j.id).join(',')||oldReports!==JSON.stringify(state.analyses.map(a=>[a.id,a.status]))||old.sync.status==='running'))render();
   }catch(error){$('#connection-text').textContent='本地服务暂未连接';$('#recorder-status').innerHTML=JournalRecorder.bar({...state,recorder:{...state.recorder,status:'stopped',error:'本地服务暂未连接，自动采集状态无法确认'}});}finally{pollActive=false;}
 },5000);
 if(location.hash==='#strategies')history.replaceState(null,'','#training');
-const initialRoute=location.hash.slice(1);if(['training','progress','journal','trades','review','analytics'].includes(initialRoute))view=initialRoute;
+const initialRoute=location.hash.slice(1);if(['training','progress','journal','trades','review','analytics','share'].includes(initialRoute))view=initialRoute;
 JournalExchanges.init({api,refresh,state:()=>state,toast});
+JournalSharing.init({api,toast,render:()=>render()});
 JournalTraining.init({api,toast,openAISettings,accountState:()=>state,render:()=>{if(JournalTraining.routes.includes(view))render();},navigate:next=>{view=next;render();window.scrollTo(0,0);}});
 refresh().catch(error=>{if(JournalTraining.routes.includes(view)){render();return;}$('#content').innerHTML=`<section class="panel empty"><h3>无法读取本地服务</h3><p>${escapeHTML(error.message)}</p><p>请确认“启动交易手记.command”正在运行，再刷新页面。</p></section>`;});
