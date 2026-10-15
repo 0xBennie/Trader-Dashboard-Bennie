@@ -26,6 +26,7 @@
   }
   function market(j){
     const snapshots=j.market_captures||[],m=snapshots.find(x=>x.id===Number(selectedMarket[j.id]))||snapshots[0];
+    if(!m&&['okx','bybit'].includes(j.exchange))return '<div class="auto-chart empty"><h3>成交与持仓已自动留档</h3><p>下方可回看持仓快照和挂单变化。此交易所的 K 线图暂未接入。</p></div>';
     if(!m)return '<div class="auto-chart empty"><h3>行情会自动留档</h3><p>首次采集完成后，这里会出现 K 线图。无需上传截图。</p></div>';
     return `<div class="auto-chart"><div class="capture-heading"><div><span class="eyebrow">自动留档</span><h3>${esc(j.symbol)} · 5 分钟行情</h3></div><label>查看历史快照<select id="market-capture" aria-label="行情快照时间">${snapshots.map(s=>`<option value="${s.id}" ${s.id===m.id?'selected':''}>${clock(s.captured)}</option>`).join('')}</select></label></div>${candleChart(m,j.execution?.entry_price||j.entry_price)}<div class="capture-caption"><span>每 5 分钟及仓位、挂单变化时保存</span><span>只绘制已收盘 K 线 · 香港时间</span></div></div>`;
   }

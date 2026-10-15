@@ -14,9 +14,20 @@ let renderedView=null;
 const expandablePanels=["review-method","more-reviews","completed-reviews","discipline-details","review-tools"];
 const chosen = () => state.journals.find(j => j.id === selectedId) || state.journals[0];
 const reports = () => state.analyses.filter(a => a.journal_id === chosen()?.id);
-const external = j => Boolean(j?.exchange && j.exchange !== 'binance');
+const external = j => j?.exchange === 'variational';
+const exchangeName = j => ({binance:'Binance',okx:'OKX',bybit:'Bybit',variational:'Variational'}[j?.exchange||'binance']||'交易所');
+const journalAccount = j => !j?.exchange||j.exchange==='binance'?state:(state.exchanges?.[j.exchange]||{snapshot:{},trade_context:{}});
+let ledgerExchange='binance';
+const ledgerAccount=()=>JournalExchanges.account(state,ledgerExchange);
+const ledgerPicker=()=>JournalExchanges.picker(ledgerExchange);
+const syncExchange=()=>{
+  if(['trades','analytics'].includes(view))return ledgerExchange;
+  const j=view==='journal'?(filteredJournals().find(j=>j.id===selectedId)||filteredJournals()[0]):chosen();
+  return ['journal','review'].includes(view)&&['okx','bybit'].includes(j?.exchange)?j.exchange:'binance';
+};
+const journalFresh=j=>{const a=journalAccount(j),stamp=a.snapshot?.captured_at;return Boolean(stamp&&Date.now()-stamp<=90000&&(['okx','bybit'].includes(j?.exchange)?a.enabled&&a.sync?.status==='complete':a.recorder_settings?.enabled&&a.recorder?.status==='running'));};
 const currency = j => external(j) ? 'USD' : 'USDT';
-const position = () => external(chosen()) || chosen()?.execution?.closed_ms ? [] : state.snapshot.positions?.filter(p => p.symbol === chosen()?.symbol && (!chosen()?.execution || p.positionSide===chosen().execution.positionSide)) || [];
+const position = () => external(chosen()) || chosen()?.execution?.closed_ms ? [] : journalAccount(chosen()).snapshot.positions?.filter(p => p.symbol === chosen()?.symbol && (!chosen()?.execution || p.positionSide===chosen().execution.positionSide)) || [];
 const priceFmt = value => JournalRecorder.price(value);
 const verified = () => Boolean(state.snapshot.captured_at);
 
@@ -54,8 +65,9 @@ function chrome() {
     metric(JournalDashboard.model(state).fresh?'Binance 持仓浮盈亏':'Binance 上次快照浮盈亏',complete?signed(unrealized):'—',complete?`${positions.length} 个 USDT 持仓 · ${date(snapshot.captured_at)} 快照`:'等待 Binance 持仓数据','USDT',complete?tone(unrealized):'neutral')+
     metric('成交订单',complete?state.orders.length:'—',complete?`${state.trades.length} 笔撮合明细 · ${snapshot.coverage.symbols.length} 个交易对`:'同一订单的多次撮合合并统计','单','','orders')+
     metric('AI 报告',state.analyses.filter(a=>a.status==='complete').length,`${state.journals.length} 篇交易日志 · 保留历史版本`,'份');
-  const running=sync.status==='running'; syncing=running;
-  $('#sync-label').textContent=running?'正在同步…':'同步 Binance';
+  const targetExchange=syncExchange(), targetSync=targetExchange==='binance'?sync:state.exchanges?.[targetExchange]?.sync;
+  const running=targetSync?.status==='running'; syncing=running;
+  $('#sync-label').textContent=running?'正在同步…':'同步 '+exchangeName({exchange:targetExchange});
   $('[data-action="sync"]').disabled=running;
   const liveHealth=JournalDashboard.health(state);
   $('#connection-dot').className='dot'+(liveHealth.healthy?' online':'');
@@ -81,7 +93,7 @@ function chrome() {
 function currentPosition(j) {
   const list=position(), p=list.length===1?list[0]:null;
   const side=p?(p.positionSide==='BOTH'?(Number(p.positionAmt)>0?'LONG':'SHORT'):p.positionSide):j.direction;
-  return `<div class="trade-header"><div class="instrument"><span class="coin-icon">${j.symbol==='ETHUSDT'?'⟠':'◈'}</span><div><h2>${escapeHTML(j.symbol.replace('USDT',' / USDT'))}<small>永续合约</small></h2><p>${external(j)?'Variational · 截图记录':'Binance USDⓈ-M'} <span class="footer-dot">·</span> ${external(j)?'截图时'+escapeHTML(j.status):p?'当前账户持仓':escapeHTML(j.status)}</p></div></div>${badge(side)}</div>
+  return `<div class="trade-header"><div class="instrument"><span class="coin-icon">${j.symbol==='ETHUSDT'?'⟠':'◈'}</span><div><h2>${escapeHTML(j.symbol.replace('USDT',' / USDT'))}<small>永续合约</small></h2><p>${external(j)?'Variational · 截图记录':exchangeName(j)+' · USDT 永续'} <span class="footer-dot">·</span> ${external(j)?'截图时'+escapeHTML(j.status):p?(journalFresh(j)?'当前账户持仓':'上次账户快照'):escapeHTML(j.status)}</p></div></div>${badge(side)}</div>
     <div class="position-grid">
       <div><span class="data-label">${p?'持仓均价':'记录入场价'}</span><span class="data-value">${external(j)?precise(j.entry_price):priceFmt(p?.entryPrice || j.entry_price)} <small>${currency(j)}</small></span></div>
       <div><span class="data-label">${p?'持仓数量':'记录数量'}</span><span class="data-value">${fmt(p?Math.abs(Number(p.positionAmt)):j.quantity,3)} <small>${escapeHTML(j.symbol.replace('USDT',''))}</small></span></div>
@@ -96,7 +108,7 @@ function filteredJournals() {
 }
 function journalFilterBar(count) {
   const exchanges=[...new Set(state.journals.map(j=>j.exchange||'binance'))].sort();
-  const label=x=>({binance:'Binance',variational:'Variational'}[x]||x);
+  const label=x=>({binance:'Binance',variational:'Variational',okx:'OKX',bybit:'Bybit'}[x]||x);
   const options=(list,value)=>list.map(([v,t])=>`<option value="${escapeHTML(v)}" ${v===value?'selected':''}>${escapeHTML(t)}</option>`).join('');
   return `<section class="journal-filters" aria-label="筛选交易日志"><label>交易所<select id="journal-exchange">${options([['all','全部交易所'],...exchanges.map(x=>[x,label(x)])],journalFilters.exchange)}</select></label><label>状态<select id="journal-status">${options([['all','全部状态'],...['持仓中','已平仓','计划中','待核对'].map(x=>[x,x])],journalFilters.status)}</select></label><span class="journal-filter-count" role="status">显示 <b>${count}</b> / ${state.journals.length} 笔</span>${journalFilters.exchange!=='all'||journalFilters.status!=='all'?'<button class="button quiet small" data-action="clear-journal-filters">清除筛选</button>':''}</section>`;
 }
@@ -106,18 +118,18 @@ function focusNoteField(name) {
   input?.scrollIntoView({block:'center'});input?.focus({preventScroll:true});
 }
 function journalView() {
-  if(!state.journals.length){editBase=null;return '<section class="panel empty"><h3>记录你的第一笔交易</h3><p>连接 Binance 后可自动归档成交，也可以先手动创建一条日志。</p><button class="button primary" data-action="new">新建交易日志</button> <button class="button" data-action="settings">连接交易所</button></section>';}
+  if(!state.journals.length){editBase=null;return '<section class="panel empty"><h3>记录你的第一笔交易</h3><p>连接 Binance、OKX 或 Bybit 后可自动归档成交，也可以先手动创建一条日志。</p><button class="button primary" data-action="new">新建交易日志</button> <button class="button" data-action="settings">连接交易所</button></section>';}
   const visible=filteredJournals(), filters=journalFilterBar(visible.length);
   if(!visible.length){editBase=null;return filters+'<section class="panel empty"><h3>没有符合条件的日志</h3><p>试试其他交易所或状态，已有记录仍保留在账本中。</p><button class="button" data-action="clear-journal-filters">显示全部日志</button></section>';}
   if(!visible.some(j=>j.id===selectedId))selectedId=visible[0].id;
   const j=chosen();
   const imageSources=[...(Array.isArray(j.images)?j.images:[]),...(j.image?[{url:j.image,label:'你补充的原始截图',timeframe:j.timeframe}]:[])];
   const images=imageSources.filter((item,index,all)=>item&&typeof item.url==='string'&&/^\/assets\/[A-Za-z0-9_-]+\.(png|jpe?g|webp)$/.test(item.url)&&all.findIndex(x=>x?.url===item.url)===index);
-  return `<div class="journal-selection">${filters}<label class="mobile-journal-picker">当前交易<select id="mobile-journal-picker">${visible.map(n=>`<option value="${escapeHTML(n.id)}" ${n.id===j.id?'selected':''}>${escapeHTML(n.symbol)} · ${external(n)?'Variational':'Binance'} · ${escapeHTML(n.status)} · ${n.execution?.opened_ms?'入场 ':'记录于 '}${date(n.execution?.opened_ms||n.created)}</option>`).join('')}</select></label></div>
+  return `<div class="journal-selection">${filters}<label class="mobile-journal-picker">当前交易<select id="mobile-journal-picker">${visible.map(n=>`<option value="${escapeHTML(n.id)}" ${n.id===j.id?'selected':''}>${escapeHTML(n.symbol)} · ${exchangeName(n)} · ${escapeHTML(n.status)} · ${n.execution?.opened_ms?'入场 ':'记录于 '}${date(n.execution?.opened_ms||n.created)}</option>`).join('')}</select></label></div>
     <div class="journal-layout"><div class="journal-main"><section class="panel">${currentPosition(j)}${JournalDashboard.cycleSummary(j)}</section>${notesForm(j)}<details class="journal-evidence panel" ${evidenceSections.get(j.id)?'open':''}><summary>行情、截图与过程证据</summary>
     <div id="automatic-market">${external(j)?externalSnapshot(j):JournalRecorder.market(j)}</div>
     ${images.map(item=>`<details class="original-image"><summary>查看${escapeHTML(item.label||'交易截图')} · ${escapeHTML(item.timeframe||j.timeframe)}</summary><button class="chart-button" data-action="image" data-image="${escapeHTML(item.url)}" aria-label="放大${escapeHTML(item.label||'交易截图')}"><img class="chart-image" src="${escapeHTML(item.url)}" alt="${escapeHTML(j.symbol)} ${escapeHTML(item.label||'用户提供的历史截图')}"><span class="expand-label">⤢ 查看原图</span></button></details>`).join('')}
-    <div class="connection-inset">${external(j)?'用户截图已归档；未接入 Variational 自动采集，当前仓位与挂单状态待核对。':position().length?`持仓数据：${date(state.snapshot.captured_at,true)} 快照。持仓均价不等于单笔成交价。`:j.execution?`已关联 Binance 实际成交${j.execution.closed_ms?' · '+date(j.execution.closed_ms,true)+' 已平仓':''}。`:'记录字段待核对，尚未关联特定成交。'} </div>
+    <div class="connection-inset">${external(j)?'用户截图已归档；未接入 Variational 自动采集，当前仓位与挂单状态待核对。':position().length?`持仓数据：${date(journalAccount(j).snapshot.captured_at,true)} 快照。持仓均价不等于单笔成交价。`:j.execution?`已关联 ${exchangeName(j)} 实际成交${j.execution.closed_ms?' · '+date(j.execution.closed_ms,true)+' 已平仓':''}。`:'记录字段待核对，尚未关联特定成交。'} </div>
     <div id="automatic-observations">${external(j)?'':JournalRecorder.observations(j)}</div></details></div><aside class="right-column">${external(j)?screenshotOrders(j):j.execution?.closed_ms?'<section class="panel closed-context"><h3>这笔交易已结束</h3><p>上方结果来自实际成交。原始计划和过程快照保留在日志中，当前账户挂单不用于这笔历史交易。</p></section>':ordersPanel(j)+protectionPanel(j)}${aiPanel(j)}${planPanel(j)}</aside></div>`;
 }
 
@@ -159,7 +171,7 @@ function aiPanel(j) {
   const list=reports(), report=list.find(a=>a.status==='complete'), running=list.some(a=>a.status==='running'), failed=list.find(a=>a.status==='failed');
   return `<section class="panel ai-panel"><div class="ai-title"><h3>AI 复盘</h3><span class="model-chip">${state.ai?.available?'已配置':'未配置'}</span></div>
   ${report&&report.journal_updated!==j.updated?'<p class="report-stale">笔记已更新，下面的报告基于旧版本。请重新生成后对照。</p>':''}
-  ${report?`<div class="ai-insight"><b>${escapeHTML(report.title)}</b><br>${escapeHTML(report.summary)}</div>`:`<div class="ai-insight">从这笔 <b>${escapeHTML(j.symbol.replace('USDT',''))} 交易</b>开始，整理当时的判断。</div><div class="ai-check"><span>✓</span><span>${j.image?'原始截图已保存':'交易日志已保存'}</span></div><div class="ai-check"><span>${!external(j)&&verified()?'✓':'○'}</span><span>${external(j)?'仅截图证据 · 无成交账单':verified()?'交易所持仓与成交已同步':'账户数据等待同步'}</span></div><div class="ai-check"><span>○</span><span>${j.thesis?'开仓理由已记录':'补充开仓理由，复盘才有参照'}</span></div>`}
+  ${report?`<div class="ai-insight"><b>${escapeHTML(report.title)}</b><br>${escapeHTML(report.summary)}</div>`:`<div class="ai-insight">从这笔 <b>${escapeHTML(j.symbol.replace('USDT',''))} 交易</b>开始，整理当时的判断。</div><div class="ai-check"><span>✓</span><span>${j.image?'原始截图已保存':'交易日志已保存'}</span></div><div class="ai-check"><span>${!external(j)&&journalAccount(j).snapshot.captured_at?'✓':'○'}</span><span>${external(j)?'仅截图证据 · 无成交账单':journalAccount(j).snapshot.captured_at?'交易所持仓与成交已同步':'账户数据等待同步'}</span></div><div class="ai-check"><span>○</span><span>${j.thesis?'开仓理由已记录':'补充开仓理由，复盘才有参照'}</span></div>`}
   ${running?'<div class="busy-row"><span class="loading-mark"></span>正在阅读截图与成交证据…<br>完成后报告会自动保存。</div>':''}
   ${failed&&!report&&!running?`<p class="helper report-failed">${escapeHTML(failed.error)}</p>`:''}
   ${JournalWorkflow.aiButton(state,j,list,navigator.onLine)}${report?'<button class="button wide" data-action="view-report">查看已保存的报告</button>':''}<p class="ai-foot">${report?date(report.created)+' 生成 · '+escapeHTML(report.model):'生成报告不替代本人复盘'}</p></section>`;
@@ -171,8 +183,8 @@ function planPanel(j) {
 }
 
 function ordersPanel(j) {
-  const ctx=state.trade_context?.[j.symbol];
-  if(!ctx)return '<section class="panel plan-panel"><h3>交易所挂单</h3><p class="helper">同步 Binance 后读取普通挂单与条件单。</p></section>';
+  const ctx=journalAccount(j).trade_context?.[j.symbol];
+  if(!ctx)return '<section class="panel plan-panel"><h3>交易所挂单</h3><p class="helper">同步对应交易所后读取普通挂单与条件单。</p></section>';
   if(ctx.status!=='complete')return `<section class="panel plan-panel"><h3>交易所挂单</h3><p class="helper">${escapeHTML(ctx.error)}<br>读取失败不代表没有挂单。</p></section>`;
   const orders=ctx.orders.filter(o=>!j.execution||o.positionSide===j.execution.positionSide);
   const p=position()[0],stops=orders.filter(o=>['STOP','STOP_MARKET','TRAILING_STOP_MARKET'].includes(o.type)&&o.side===(j.direction==='LONG'?'SELL':'BUY'));
@@ -180,27 +192,27 @@ function ordersPanel(j) {
   const additions=orders.filter(o=>o.type==='LIMIT'&&!o.reduceOnly&&!o.closePosition&&o.side===(j.direction==='LONG'?'BUY':'SELL'));
   const targets=orders.filter(o=>o.type.startsWith('TAKE_PROFIT')&&o.side===(j.direction==='LONG'?'SELL':'BUY'));
   if(p&&additions.length&&targets.length===1&&!targets[0].closePosition){const future=Math.abs(Number(p.positionAmt))+additions.reduce((n,o)=>n+Number(o.quantity),0),covered=Number(targets[0].quantity);if(covered<future)warning+=`<p class="report-stale">若现有加仓单全部成交，数量将变为 ${fmt(future,3)}；当前固定数量止盈只覆盖 ${fmt(covered/future*100)}%，其余数量需另行核对退出安排。</p>`;}
-  return `<section class="panel plan-panel"><div class="panel-heading"><h3>交易所挂单</h3><span class="badge blue">已读取</span></div>${warning}${orders.map(o=>`<div class="exchange-order"><div><span class="badge ${o.type.startsWith('TAKE')?'long':'warn'}">${o.type.startsWith('TAKE')?'止盈':o.type.startsWith('TRAILING')?'追踪止损':o.type.startsWith('STOP')?'止损':o.side==='BUY'?'限价买入':'限价卖出'}</span><strong>${priceFmt(Number(o.triggerPrice)||o.price)}</strong></div><p>${o.positionSide==='LONG'?'多仓':o.positionSide==='SHORT'?'空仓':'单向仓位'} · ${o.closePosition?'全部平仓':precise(o.quantity)+' 数量'} · ${Number(o.triggerPrice)?o.workingType==='CONTRACT_PRICE'?'最新成交价触发':'标记价格触发':'普通委托'}${o.priceProtect?' · 价格保护开':''}</p></div>`).join('')||'<p class="helper">当前没有读取到止盈止损条件单。</p>'}<p class="helper">${date(ctx.captured_at)} 挂单快照。触发不保证成交价，价格保护开启时可能延迟触发。</p></section>`;
+  return `<section class="panel plan-panel"><div class="panel-heading"><h3>交易所挂单</h3><span class="badge blue">${journalFresh(j)?'已读取':'历史快照'}</span></div>${warning}${orders.map(o=>`<div class="exchange-order"><div><span class="badge ${o.type.startsWith('TAKE')?'long':'warn'}">${o.type.startsWith('TAKE')?'止盈':o.type.startsWith('TRAILING')?'追踪止损':o.type.startsWith('STOP')?'止损':o.type==='LIMIT'?(o.side==='BUY'?'限价买入':'限价卖出'):o.type==='MARKET'?'市价委托':'其他条件委托'}</span><strong>${priceFmt(Number(o.triggerPrice)||o.price)}</strong></div><p>${o.positionSide==='LONG'?'多仓':o.positionSide==='SHORT'?'空仓':'单向仓位'} · ${o.closePosition?'全部平仓':precise(o.quantity)+' 数量'} · ${Number(o.triggerPrice)?['CONTRACT_PRICE','last','LastPrice'].includes(o.workingType)?'最新成交价触发':['MARK_PRICE','mark','MarkPrice'].includes(o.workingType)?'标记价格触发':['index','IndexPrice'].includes(o.workingType)?'指数价格触发':'触发价格类型待核对':'普通委托'}${o.priceProtect?' · 价格保护开':''}</p></div>`).join('')||'<p class="helper">当前没有读取到止盈止损条件单。</p>'}<p class="helper">${date(ctx.captured_at)} 挂单快照。触发不保证成交价，价格保护开启时可能延迟触发。</p></section>`;
 }
 
 function protectionPanel(j) {
-  const ctx=state.trade_context?.[j.symbol], calc=ctx?.planning||{}, entry=Number(calc.entry||j.entry_price), pct=Number(j.protect_trigger_pct), isLong=j.direction==='LONG', isShort=j.direction==='SHORT';
+  const ctx=journalAccount(j).trade_context?.[j.symbol], p=position()[0], calc=ctx?.planning||{}, entry=Number(p?.entryPrice||calc.entry||j.entry_price), pct=Number(j.protect_trigger_pct), isLong=j.direction==='LONG', isShort=j.direction==='SHORT';
   const configured=pct>0&&Number(j.protect_price)>0&&(isLong||isShort)&&entry>0;
   const threshold=configured?entry*(1+(isLong?1:-1)*pct/100):null;
-  const stale=!ctx||ctx.status!=='complete'||Date.now()-ctx.captured_at>300000;
-  const reached=configured&&!stale&&Number(calc.price_change_pct)>=pct;
-  return `<section class="panel plan-panel protection-panel"><div class="panel-heading"><h3>盈利保护计划</h3><span class="badge ${configured?'blue':'warn'}">${configured?'手动执行':'待你设置'}</span></div><div class="plan-row"><span>触发涨幅</span><strong>${j.protect_trigger_pct?precise(j.protect_trigger_pct)+'%':'自定义'}</strong></div><div class="plan-row"><span>对应触发价</span><strong>${threshold?priceFmt(threshold)+' USDT':'—'}</strong></div><div class="plan-row"><span>计划移至</span><strong>${j.protect_price?priceFmt(j.protect_price)+' USDT':'自定义'}</strong></div><p class="helper">${configured?(stale?'请同步最新仓位后核对是否达到阈值。':reached?'本次快照已达到你设置的阈值，请自行核对挂单。':'本次快照尚未达到你设置的阈值。'):'在左侧笔记中填写触发涨幅和保护价，按你的规则执行。'}</p><div class="reference-prices"><span>入场均价 <b>${priceFmt(entry)}</b></span><span>估算含费保本价 <b>${priceFmt(calc.estimated_net_break_even)}</b></span></div><p class="helper">含费价考虑已入账成本和预估平仓手续费；未来资金费、滑点另计。系统不会自动改挂单。</p></section>`;
+  const stale=!ctx||ctx.status!=='complete'||!journalFresh(j)||Date.now()-ctx.captured_at>90000;
+  const reached=configured&&!stale&&(p?(Number(p.markPrice)/entry-1)*(isLong?1:-1)*100:Number(calc.price_change_pct))>=pct;
+  return `<section class="panel plan-panel protection-panel"><div class="panel-heading"><h3>盈利保护计划</h3><span class="badge ${configured?'blue':'warn'}">${configured?'手动执行':'待你设置'}</span></div><div class="plan-row"><span>触发涨幅</span><strong>${j.protect_trigger_pct?precise(j.protect_trigger_pct)+'%':'自定义'}</strong></div><div class="plan-row"><span>对应触发价</span><strong>${threshold?priceFmt(threshold)+' USDT':'—'}</strong></div><div class="plan-row"><span>计划移至</span><strong>${j.protect_price?priceFmt(j.protect_price)+' USDT':'自定义'}</strong></div><p class="helper">${configured?(stale?'请同步最新仓位后核对是否达到阈值。':reached?'本次快照已达到你设置的阈值，请自行核对挂单。':'本次快照尚未达到你设置的阈值。'):'在左侧笔记中填写触发涨幅和保护价，按你的规则执行。'}</p><div class="reference-prices"><span>入场均价 <b>${priceFmt(entry)}</b></span><span>估算含费保本价 <b>${priceFmt(calc.estimated_net_break_even)}</b></span></div><p class="helper">${j.exchange==='okx'||j.exchange==='bybit'?'此账户尚未估算含费保本价；入场均价不含平仓成本。':'含费价考虑已入账成本和预估平仓手续费；未来资金费、滑点另计。'}系统不会自动改挂单。</p></section>`;
 }
 
 function tradesView() {
-  return `<section class="panel"><div class="trade-view-heading"><div><h3>每次下单，合并看清</h3><p>一张订单可能分多次撮合，汇总后再看均价和费用。</p></div><div class="segmented"><button data-trade-mode="orders" class="${tradeMode==='orders'?'selected':''}">按订单 <span>${state.orders.length}</span></button><button data-trade-mode="fills" class="${tradeMode==='fills'?'selected':''}">逐笔成交 <span>${state.trades.length}</span></button></div></div><div class="filter-bar"><input id="trade-search" aria-label="搜索交易对" placeholder="搜索交易对，例如 ETH"><select id="trade-side" aria-label="筛选成交方向"><option value="">全部买卖方向</option><option value="BUY">买入</option><option value="SELL">卖出</option></select><span class="helper" id="trade-result-count"></span>${orderFilter?'<button class="button small" data-action="clear-order-filter">清除订单筛选</button>':''}</div><div class="table-wrap"><table><thead><tr><th>成交时间（香港）</th><th>交易对</th><th>买卖 / 持仓方向</th><th>${tradeMode==='orders'?'成交均价':'成交价格'}</th><th>数量</th><th>已实现盈亏</th><th>手续费</th>${tradeMode==='orders'?'<th>撮合明细</th>':''}</tr></thead><tbody id="trade-rows"></tbody></table></div><div class="table-note">按“交易对 + 订单编号”合并当前窗口内的撮合，只统计有成交的订单。一次完整开仓到平仓可能对应多张订单；此数量不是完整交易轮数，也不用于计算胜率。</div></section>`;
+  return `${ledgerPicker()}<section class="panel"><div class="trade-view-heading"><div><h3>每次下单，合并看清</h3><p>一张订单可能分多次撮合，汇总后再看均价和费用。</p></div><div class="segmented"><button data-trade-mode="orders" class="${tradeMode==='orders'?'selected':''}">按订单 <span>${ledgerAccount().orders.length}</span></button><button data-trade-mode="fills" class="${tradeMode==='fills'?'selected':''}">逐笔成交 <span>${ledgerAccount().trades.length}</span></button></div></div><div class="filter-bar"><input id="trade-search" aria-label="搜索交易对" placeholder="搜索交易对，例如 ETH"><select id="trade-side" aria-label="筛选成交方向"><option value="">全部买卖方向</option><option value="BUY">买入</option><option value="SELL">卖出</option></select><span class="helper" id="trade-result-count"></span>${orderFilter?'<button class="button small" data-action="clear-order-filter">清除订单筛选</button>':''}</div><div class="table-wrap"><table><thead><tr><th>成交时间（香港）</th><th>交易对</th><th>买卖 / 持仓方向</th><th>${tradeMode==='orders'?'成交均价':'成交价格'}</th><th>数量</th><th>已实现盈亏</th><th>手续费</th>${tradeMode==='orders'?'<th>撮合明细</th>':''}</tr></thead><tbody id="trade-rows"></tbody></table></div><div class="table-note">按“交易对 + 订单编号”合并当前窗口内的撮合，只统计有成交的订单。一次完整开仓到平仓可能对应多张订单；此数量不是完整交易轮数，也不用于计算胜率。</div></section>`;
 }
 function renderTrades() {
   const search=$('#trade-search')?.value.toUpperCase()||'', side=$('#trade-side')?.value||'';
   const grouped=tradeMode==='orders';
-  const rows=(grouped?state.orders:state.trades).filter(t=>t.symbol.includes(search)&&(!side||t.side===side)&&(!orderFilter||grouped||(t.symbol===orderFilter.symbol&&t.order_key===orderFilter.key)));
+  const rows=(grouped?ledgerAccount().orders:ledgerAccount().trades).filter(t=>t.symbol.includes(search)&&(!side||t.side===side)&&(!orderFilter||grouped||(t.symbol===orderFilter.symbol&&t.order_key===orderFilter.key)));
   $('#trade-result-count').textContent=`${rows.length} ${grouped?'个成交订单':'笔撮合成交'}`;
-  $('#trade-rows').innerHTML=rows.length?rows.slice(0,1000).map(t=>`<tr><td>${date(t.time,true)}</td><td><b>${escapeHTML(t.symbol)}</b></td><td><span class="${t.side==='BUY'?'positive':'negative'}">${t.side==='BUY'?'买入':'卖出'}</span> / ${t.positionSide==='LONG'?'多仓':t.positionSide==='SHORT'?'空仓':'单向'}</td><td>${grouped?Number(t.price).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}):precise(t.price,2)}</td><td>${precise(t.qty)}</td><td class="${tone(t.realizedPnl)}">${Number(t.realizedPnl)>0?'+':''}${precise(t.realizedPnl)} USDT</td><td>${grouped?Object.entries(t.fees).map(([a,v])=>precise(v)+' '+escapeHTML(a)).join('<br>'):precise(t.commission)+' '+escapeHTML(t.commissionAsset)}</td>${grouped?`<td><button class="fill-count" data-order-key="${escapeHTML(t.order_key)}" data-symbol="${escapeHTML(t.symbol)}">${t.fill_count} 笔 ›</button></td>`:''}</tr>`).join(''):`<tr><td colspan="8"><div class="empty">${verified()?'该范围没有匹配的成交。':'完成 Binance 同步后，真实成交会出现在这里。'}</div></td></tr>`;
+  $('#trade-rows').innerHTML=rows.length?rows.slice(0,1000).map(t=>`<tr><td>${date(t.time,true)}</td><td><b>${escapeHTML(t.symbol)}</b></td><td><span class="${t.side==='BUY'?'positive':'negative'}">${t.side==='BUY'?'买入':'卖出'}</span> / ${t.positionSide==='LONG'?'多仓':t.positionSide==='SHORT'?'空仓':'单向'}</td><td>${grouped?Number(t.price).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}):precise(t.price,2)}</td><td>${precise(t.qty)}</td><td class="${tone(t.realizedPnl)}">${Number(t.realizedPnl)>0?'+':''}${precise(t.realizedPnl)} USDT</td><td>${grouped?Object.entries(t.fees).map(([a,v])=>precise(v)+' '+escapeHTML(a)).join('<br>'):precise(t.commission)+' '+escapeHTML(t.commissionAsset)}</td>${grouped?`<td><button class="fill-count" data-order-key="${escapeHTML(t.order_key)}" data-symbol="${escapeHTML(t.symbol)}">${t.fill_count} 笔 ›</button></td>`:''}</tr>`).join(''):`<tr><td colspan="8"><div class="empty">${ledgerAccount().snapshot.captured_at?'该范围没有匹配的成交。':'完成所选交易所同步后，真实成交会出现在这里。'}</div></td></tr>`;
   if(rows.length>1000) $('#trade-result-count').textContent=`显示前 1,000 / ${rows.length} 笔，完整记录可导出`;
 }
 
@@ -213,10 +225,10 @@ function reviewView() {
   if(report?.status==='complete') body=`<article class="report"><span class="badge blue">✧ AI 复盘报告</span><h2>${escapeHTML(report.title)}</h2><div class="report-meta">${date(report.created,true)} · ${escapeHTML(report.model)} · 证据截至 ${date(report.evidence_time)}</div>${report.journal_updated<chosen().updated?'<p class="notice">这份报告生成后，交易笔记有过修改。可重新生成以纳入最新记录。</p>':''}<p class="report-summary">${escapeHTML(report.summary)}</p>${[['facts','已确认的事实'],['risks','需要留意的风险'],['questions','还需要补充什么'],['next_review','下一次复盘怎么做']].map(([key,title])=>`<h3>${title}</h3><ul>${report[key].map(s=>`<li>${escapeHTML(s)}</li>`).join('')}</ul>`).join('')}<p class="helper">报告基于生成时的证据，用于回顾交易过程，不会自动执行交易。</p></article>`;
   if(report?.images_omitted)body=body.replace('</article>',`<p class="helper">本次使用纯文本模型，${Number(report.images_omitted)} 张截图未发送、未读取。</p></article>`);
   if(report?.verification_notes?.length) body=body.replace('</article>',`<p class="helper">证据核对：${report.verification_notes.map(escapeHTML).join(' ')}</p></article>`);
-  return `<div class="review-layout"><aside class="panel review-picker"><label>选择交易日志<select id="review-journal">${state.journals.map(j=>`<option value="${escapeHTML(j.id)}" ${j.id===chosen().id?'selected':''}>${escapeHTML(j.title||j.symbol)}</option>`).join('')}</select></label>${JournalWorkflow.aiButton(state,chosen(),list,navigator.onLine)}<button class="button wide" data-action="dashboard-journal" data-open-journal="${escapeHTML(chosen()?.id||'')}" data-focus-field="reflection">${chosen()?.review_status?.personal_complete?'查看本人复盘':'写下本人复盘'} →</button><p class="helper">仅发送所选日志、对应交易对的持仓和最近最多 200 笔成交、原始截图。不会发送 API 密钥。</p>${list.length?'<div class="form-divider"></div><p class="helper">报告历史</p>':''}${list.map(a=>`<button class="history-item ${report?.id===a.id?'selected':''}" data-report="${a.id}">${escapeHTML(a.status==='complete'?a.title:a.status==='running'?'正在生成':'生成未完成')}<small>${date(a.created)} · ${a.status==='complete'?'已保存':a.status==='running'?'进行中':'可重试'}</small></button>`).join('')}</aside><section class="panel">${body}</section></div>`;
+  return `<div class="review-layout"><aside class="panel review-picker"><label>选择交易日志<select id="review-journal">${state.journals.map(j=>`<option value="${escapeHTML(j.id)}" ${j.id===chosen().id?'selected':''}>${exchangeName(j)} · ${escapeHTML(j.title||j.symbol)}</option>`).join('')}</select></label>${JournalWorkflow.aiButton(state,chosen(),list,navigator.onLine)}<button class="button wide" data-action="dashboard-journal" data-open-journal="${escapeHTML(chosen()?.id||'')}" data-focus-field="reflection">${chosen()?.review_status?.personal_complete?'查看本人复盘':'写下本人复盘'} →</button><p class="helper">仅发送所选日志、对应交易对的持仓和最近最多 200 笔成交、原始截图。不会发送 API 密钥。</p>${list.length?'<div class="form-divider"></div><p class="helper">报告历史</p>':''}${list.map(a=>`<button class="history-item ${report?.id===a.id?'selected':''}" data-report="${a.id}">${escapeHTML(a.status==='complete'?a.title:a.status==='running'?'正在生成':'生成未完成')}<small>${date(a.created)} · ${a.status==='complete'?'已保存':a.status==='running'?'进行中':'可重试'}</small></button>`).join('')}</aside><section class="panel">${body}</section></div>`;
 }
 
-function analyticsView() { return JournalAnalytics.render(state,analyticsDay,analyticsMonth); }
+function analyticsView() { return ledgerPicker()+JournalAnalytics.render({...ledgerAccount(),exchange:ledgerExchange},analyticsDay,analyticsMonth); }
 
 function render() { if(renderedView)for(const name of expandablePanels){const panel=$('.'+name);if(panel)panelExpansion.set(renderedView+':'+name,panel.open);} const previous=$('#plan-form');if(previous){noteSections.set(previous.dataset.journalId,[...previous.querySelectorAll('[data-note-section][open]')].map(d=>d.dataset.noteSection));evidenceSections.set(previous.dataset.journalId,Boolean($('.journal-evidence')?.open));} if(state)chrome(); else document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal'; $('#content').innerHTML=JournalTraining.routes.includes(view)?JournalTraining.render(view):({journal:journalView,trades:tradesView,review:reviewView,analytics:analyticsView}[view])(); if(view==='trades')renderTrades(); for(const name of expandablePanels){const panel=$('.'+name),open=panelExpansion.get(view+':'+name);if(panel&&open!==undefined)panel.open=open;}renderedView=view; }
 async function refresh(renderBody=true) { state=await api('/api/state'); if(!state.journals.some(j=>j.id===selectedId))selectedId=state.journals[0]?.id; chrome(); if(renderBody&&!dirty)render(); }
@@ -239,10 +251,10 @@ async function saveNotes(silent=false) {
   }catch(error){toast(error.message);return false;}
   finally{savingNotes=false;const b=$('#plan-form [type="submit"]');if(b){b.disabled=false;b.textContent='保存交易笔记';}}
 }
-async function sync() { if(!state.credentials_configured){openAISettings();toast('先在连接设置中填写 Binance 只读 API 凭证。');return;}try{await api('/api/sync',{days:Number($('#sync-days').value)});toast('开始读取 Binance 数据。');setTimeout(()=>refresh(false).catch(e=>toast(e.message)),150);}catch(error){toast(error.message);} }
+async function sync() { const x=syncExchange();if(x!=='binance'){if(!state.exchanges?.[x]?.configured){openAISettings();toast('先在连接设置中填写 '+exchangeName({exchange:x})+' 只读 API 凭证。');return;}try{await api(`/api/exchanges/${x}/sync`,{days:Number($('#sync-days').value)||30});toast('开始同步 '+exchangeName({exchange:x})+'。');await refresh(false);}catch(error){toast(error.message);}return;} if(!state.credentials_configured){openAISettings();toast('先在连接设置中填写 Binance 只读 API 凭证。');return;}try{await api('/api/sync',{days:Number($('#sync-days').value)});toast('开始读取 Binance 数据。');setTimeout(()=>refresh(false).catch(e=>toast(e.message)),150);}catch(error){toast(error.message);} }
 async function analyze() { if(!await saveNotes(true))return;const gate=JournalWorkflow.aiEntry(state,chosen(),reports(),navigator.onLine);if(gate.action!=='analyze'){if(gate.action==='ai-settings')openAISettings();else if(gate.action==='dashboard-journal'){view='journal';render();focusNoteField('thesis');}toast(gate.hint);return;}try{const result=await api('/api/analyze',{id:chosen().id});reportId=result.id;view='review';await refresh();toast('AI 复盘已开始，报告会自动保存。');}catch(error){toast(error.message);} }
 
-function openAISettings(){JournalAISettings.show(state.ai);$('#settings-status').textContent=`Binance：${state.credentials_configured?'已保存密钥':'尚未配置'}。${state.sync.error||'读取持仓、成交与账单。'}`;$('#settings-dialog').showModal();}
+function openAISettings(){JournalAISettings.show(state.ai);JournalExchanges.show(state.exchanges);$('#settings-status').textContent=`Binance：${state.credentials_configured?'已保存密钥':'尚未配置'}。${state.sync.error||'读取持仓、成交与账单。'}`;$('#settings-dialog').showModal();}
 JournalAISettings.bind();
 function refreshAIEntries(){document.querySelectorAll('[data-ai-entry]').forEach(el=>{el.outerHTML=JournalWorkflow.aiButton(state,chosen(),reports(),navigator.onLine);});}
 document.addEventListener('click', async event=>{
@@ -305,6 +317,7 @@ document.addEventListener('input',event=>{
 });
 document.addEventListener('change',async e=>{if(e.target.id!=='mobile-journal-picker')return;const target=e.target.value;if(!await saveNotes(true)){e.target.value=selectedId;return;}selectedId=target;try{localStorage.setItem('selected-journal',selectedId);}catch{}reportId=null;render();});
 document.addEventListener('change',async event=>{
+  if(event.target.id==='ledger-exchange'){ledgerExchange=event.target.value;orderFilter=null;render();return;}
   if(['journal-exchange','journal-status'].includes(event.target.id)){
     const key=event.target.id==='journal-exchange'?'exchange':'status',value=event.target.value;
     if(filteringJournals){event.target.value=journalFilters[key];return;}
@@ -335,5 +348,6 @@ setInterval(async()=>{
 },5000);
 if(location.hash==='#strategies')history.replaceState(null,'','#training');
 const initialRoute=location.hash.slice(1);if(['training','progress','journal','trades','review','analytics'].includes(initialRoute))view=initialRoute;
+JournalExchanges.init({api,refresh,state:()=>state,toast});
 JournalTraining.init({api,toast,openAISettings,accountState:()=>state,render:()=>{if(JournalTraining.routes.includes(view))render();},navigate:next=>{view=next;render();window.scrollTo(0,0);}});
 refresh().catch(error=>{if(JournalTraining.routes.includes(view)){render();return;}$('#content').innerHTML=`<section class="panel empty"><h3>无法读取本地服务</h3><p>${escapeHTML(error.message)}</p><p>请确认“启动交易手记.command”正在运行，再刷新页面。</p></section>`;});

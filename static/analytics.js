@@ -34,7 +34,7 @@
 
   function render(state,selectedDay,selectedMonth) {
     const data=state.analytics;
-    if(!data?.available)return '<section class="panel empty"><h3>先同步真实账单</h3><p>同步后即可按日期和交易对复盘收益。</p><button class="button primary" data-action="sync">同步 Binance</button></section>';
+    if(!data?.available)return `<section class="panel empty"><h3>先同步真实账单</h3><p>同步后即可按日期和交易对复盘收益。</p><button class="button primary" data-action="${state.exchange&&state.exchange!=='binance'?'exchange-sync':'sync'}" ${state.exchange&&state.exchange!=='binance'?`data-exchange="${esc(state.exchange)}"`:''}>同步 ${esc(({okx:'OKX',bybit:'Bybit'}[state.exchange]||'Binance'))}</button></section>`;
     const days=data.days,s=data.summary,total=state.totals.USDT||{realized:'0',fees:'0',funding:'0',net:'0'};
     const best=days.find(d=>d.key===s.best),worst=days.find(d=>d.key===s.worst);
     const month=days.some(d=>d.key.startsWith(selectedMonth))?selectedMonth:days.at(-1).key.slice(0,7);

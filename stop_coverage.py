@@ -52,6 +52,9 @@ def summarize(state, now):
         for order in context['orders']:
             if order.get('symbol') != symbol or order.get('positionSide') != side or order.get('side') != ('SELL' if amount > 0 else 'BUY'):
                 continue
+            if order.get('coverage_unknown'):
+                malformed = True
+                continue
             if order.get('type') not in {'STOP', 'STOP_MARKET'} or order.get('status') not in {'NEW', 'PARTIALLY_FILLED'}:
                 continue
             # Hedge-mode SELL LONG / BUY SHORT closes its own leg. One-way quantity stops must be reduce-only.

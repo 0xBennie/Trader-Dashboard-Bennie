@@ -546,7 +546,7 @@ def cancel_intent(iid, payload):
 def _risk_orders(db):
     """Prefer recorder's reconciled risk allocations; ambiguous one-way rows stay unknown."""
     groups, known = {}, set()
-    records = {j["id"]: j for j in journal.all_journals(db)}
+    records = {j["id"]: j for j in journal.binance_journals(db)}
     for row in db.execute("SELECT * FROM trade_events WHERE kind IN ('open','add','reduce','close') ORDER BY occurred,id"):
         j = records.get(row["journal_id"])
         if not j:
@@ -689,6 +689,8 @@ def _metrics(db, audits, policy):
         ai_completed += int(bool(report))
         if personal or report:
             completed += 1
+        if not journal.is_binance(item):
+            continue  # Pre-trade permits and audit cohorts currently belong to Binance only.
         related = [a for a in audits if item["id"] in a["journal_ids"]]
         key = "unclassified"
         if execution.get("history_complete") and related:

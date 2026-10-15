@@ -17,6 +17,7 @@ import journal
 import trade_context
 import stop_coverage
 import recorder
+import exchange_sync
 import training
 import pretrade_ai
 import pretrade_evidence
@@ -165,11 +166,12 @@ class Handler(BaseHTTPRequestHandler):
                 data = journal.state()
                 if kind == "csv":
                     buf = io.StringIO()
-                    columns = ["symbol", "id", "orderId", "time", "side", "positionSide", "price", "qty", "realizedPnl", "commission", "commissionAsset"]
+                    columns = ["exchange", "symbol", "id", "orderId", "time", "side", "positionSide", "price", "qty", "realizedPnl", "commission", "commissionAsset"]
                     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
                     writer.writeheader()
-                    writer.writerows(data["trades"])
-                    return self.send(200, "\ufeff" + buf.getvalue(), "text/csv; charset=utf-8", "binance-trades.csv")
+                    writer.writerows(dict(t, exchange="binance") for t in data["trades"])
+                    for account in data["exchanges"].values(): writer.writerows(account["trades"])
+                    return self.send(200, "\ufeff" + buf.getvalue(), "text/csv; charset=utf-8", "exchange-trades.csv")
                 # Include full archival history, not only the dashboard's current time window.
                 with journal.connect() as db:
                     data["trades"] = [json.loads(r[0]) for r in db.execute("SELECT raw FROM trades ORDER BY time")]
@@ -296,6 +298,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, ai_provider.models(payload))
             if path == "/api/ai/check":
                 return self.send(200, ai_provider.check(payload))
+            if path.startswith("/api/exchanges/"):
+                parts = path.strip("/").split("/")
+                if len(parts) != 4: raise ValueError("交易所操作路径不正确。")
+                exchange, action = parts[2:]
+                exchange_sync.validate_exchange(exchange)
+                if action == "credentials": return self.send(200, exchange_sync.save(exchange, payload))
+                if action == "sync": return self.send(202, exchange_sync.request_sync(exchange, payload.get("days", 30)))
+                if action == "enabled": return self.send(200, exchange_sync.set_enabled(exchange, payload.get("enabled")))
+                raise ValueError("不支持此交易所操作。")
             if path == "/api/credentials":
                 key, secret = str(payload.get("key", "")).strip(), str(payload.get("secret", "")).strip()
                 if not (16 <= len(key) <= 256 and 16 <= len(secret) <= 256 and key.isalnum() and secret.isalnum()):
@@ -338,7 +349,7 @@ def main():
     except BlockingIOError:
         lock.close()
         parser.error("这份交易账本已有服务在运行，请直接打开原页面。")
-    server, worker = None, None
+    server, worker, exchange_workers = None, None, []
     try:
         # Own the database and port before marking any previous tasks interrupted.
         server = ThreadingHTTPServer((args.host, args.port), Handler)
@@ -351,9 +362,13 @@ def main():
             if journal.kv("sync", {}, db).get("status") == "running":
                 journal.set_kv(db, "sync", {"status": "failed", "error": "上次同步被中断，请重新同步。"})
         worker = recorder.Recorder(SYNC_LOCK).start()
+        exchange_workers = exchange_sync.start_workers()
         print(f"交易手记已启动：http://127.0.0.1:{args.port}", flush=True)
         server.serve_forever()
     finally:
+        for extra in exchange_workers:
+            extra.stop.set()
+            extra.wake.set()
         if worker: worker.stop.set()
         if server: server.server_close()
         lock.close()

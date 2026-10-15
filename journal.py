@@ -33,6 +33,8 @@ def init():
         CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS trades (symbol TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(symbol,id));
         CREATE TABLE IF NOT EXISTS income (type TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(type,id));
+        CREATE TABLE IF NOT EXISTS exchange_trades (exchange TEXT, symbol TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(exchange,symbol,id));
+        CREATE TABLE IF NOT EXISTS exchange_income (exchange TEXT, type TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(exchange,type,id));
         CREATE TABLE IF NOT EXISTS journals (id TEXT PRIMARY KEY, created INTEGER, updated INTEGER, data TEXT);
         CREATE TABLE IF NOT EXISTS revisions (id INTEGER PRIMARY KEY, journal_id TEXT, time INTEGER, data TEXT);
         CREATE TABLE IF NOT EXISTS analyses (id TEXT PRIMARY KEY, journal_id TEXT, created INTEGER, status TEXT, data TEXT);
@@ -89,7 +91,7 @@ def review_progress(db, records, stamp=None):
                   "ai_at": report["created"] if report else None, "closed_at": closed}
         item["review_status"] = status
         if status["eligible"]:
-            items.append(dict(status, id=item["id"], symbol=item["symbol"], title=item.get("title", "")))
+            items.append(dict(status, id=item["id"], symbol=item["symbol"], title=item.get("title", ""), exchange=item.get("exchange", "binance")))
     items.sort(key=lambda x: x["closed_at"], reverse=True)
     total = len(items)
     def ratio(key):
@@ -130,16 +132,16 @@ def save_journal(payload):
         for key in TEXT:
             data[key] = str(payload.get(key, previous.get(key, "")))[:8000]
         exchange = str(payload.get("exchange", previous.get("exchange", "binance"))).lower()
-        if exchange not in {"binance", "variational"}:
+        if exchange not in {"binance", "variational", "okx", "bybit"}:
             raise ValueError("交易所不支持。")
         if old and exchange != previous.get("exchange", "binance"):
             raise ValueError("已有记录不能更换交易所，请新建独立记录。")
         symbol = str(payload.get("symbol", previous.get("symbol", "ETHUSDT"))).upper().strip()
         if not symbol.isascii() or not symbol.isalnum() or not 1 <= len(symbol) <= 24:
             raise ValueError("合约名称只能包含英文字母和数字。")
-        if exchange == "binance" and (len(symbol) < 5 or not symbol.endswith("USDT")):
-            raise ValueError("当前支持 Binance U 本位 USDT 交易对，例如 ETHUSDT。")
-        data.update(symbol=symbol, exchange=exchange, quote_currency="USDT" if exchange == "binance" else "USD")
+        if exchange != "variational" and (len(symbol) < 5 or not symbol.endswith("USDT")):
+            raise ValueError("API 账户支持 USDT 永续交易对，例如 ETHUSDT。")
+        data.update(symbol=symbol, exchange=exchange, quote_currency="USD" if exchange == "variational" else "USDT")
         for key in NUMERIC:
             val = str(payload.get(key, previous.get(key, ""))).strip()
             if val:
@@ -166,7 +168,7 @@ def save_journal(payload):
         timeframe = str(payload.get("timeframe", previous.get("timeframe", "4h")))
         if timeframe not in {"5m", "15m", "20m", "30m", "1h", "4h", "1d"}:
             raise ValueError("图表周期不支持。")
-        data.update(opened_at=opened_at, market="Binance USDⓈ-M 永续" if exchange == "binance" else "Variational 永续", timeframe=timeframe)
+        data.update(opened_at=opened_at, market={"binance":"Binance USDⓈ-M 永续","variational":"Variational 永续","okx":"OKX USDT 永续","bybit":"Bybit USDT 永续"}[exchange], timeframe=timeframe)
         data.setdefault("source", "用户手动记录；不等同于交易所成交")
         if old and data == previous:
             return dict(data, id=jid, updated=old["updated"], created=old["created"])
@@ -261,7 +263,8 @@ def state():
                     for r in db.execute("SELECT * FROM analyses ORDER BY created DESC LIMIT 50")]
         totals, curve = aggregate_income(income)
         from analytics import build_analytics
-        return {"sync": sync, "snapshot": snapshot, "journals": journals, "trades": trades,
+        from exchange_sync import states
+        return {"exchanges": states(db), "sync": sync, "snapshot": snapshot, "journals": journals, "trades": trades,
                 "orders": group_orders(trades), "trade_context": kv("trade_context", {}, db),
                 "recorder": kv("recorder_status", {}), "recorder_settings": kv("recorder_settings", {"enabled":True,"interval":15,"auto_ai":True}),
                 "totals": totals, "curve": curve, "analytics": build_analytics(income, trades, coverage),

@@ -27,3 +27,20 @@
 @media(max-width:600px){.journal-filters{padding:14px;gap:12px}.journal-filters label{min-width:0;flex:1 1 42%}.journal-filter-count{margin:0 auto 0 0}.note-section>summary{padding:14px 12px}.note-section-body{padding:16px 12px 2px}.note-section-body .form-grid,.note-section-body .form-grid.three{grid-template-columns:1fr}.note-save-bar{align-items:center;flex-wrap:wrap}.note-save-bar>span{max-width:none;flex:1 1 150px}.note-save-bar .button{min-height:44px}.stop-coverage{padding:17px}.stop-coverage .dashboard-section-head{align-items:start;flex-wrap:wrap;gap:12px}.coverage-row{align-items:start;flex-direction:column;gap:12px}.coverage-row-actions{width:100%;flex-direction:row;align-items:center;justify-content:space-between}.coverage-counts{gap:8px}.coverage-counts span{padding:7px 9px}.coverage-external{padding:12px}}
 
 .external-export-link{color:var(--blue);text-decoration:underline;text-underline-offset:3px;white-space:normal}
+
+/* Exchange accounts share the existing quiet account-card hierarchy. */
+.account-coverage {grid-template-columns:repeat(2,minmax(0,1fr));}
+.exchange-account-values {display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0;}
+.exchange-account-values span {font-size:12px;color:var(--muted,#6b7280);}
+.exchange-account-values strong {display:block;font-size:21px;letter-spacing:-.5px;color:var(--text,#202329);margin-top:6px;font-variant-numeric:tabular-nums;}
+.exchange-account-values strong.positive {color:var(--green,#07866d);}
+.exchange-account-values strong.negative {color:var(--red,#dc4b5b);}
+.exchange-selector {display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap;}
+.exchange-selector label {display:flex;align-items:center;gap:12px;font-size:13px;color:#5d6470;}
+.exchange-selector select {min-width:220px;}
+.exchange-controls {display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:16px 0;}
+.exchange-controls[hidden] {display:none;}
+.exchange-controls label {flex:1;min-width:140px;}
+.exchange-connect summary .badge {font-size:11px;margin-left:8px;}
+.exchange-status-note {margin-bottom:16px;padding:12px 16px;border:1px solid #e0e5ef;border-radius:8px;color:#656d7b;font-size:13px;}
+@media(max-width:700px){.account-coverage{grid-template-columns:1fr}.exchange-account-values strong{font-size:20px}.exchange-selector{display:block}.exchange-selector .helper{display:block;margin-top:8px}.exchange-selector select{min-width:0;flex:1}.exchange-controls .button{min-height:44px}}

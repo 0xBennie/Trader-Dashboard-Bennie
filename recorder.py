@@ -93,15 +93,20 @@ def reconstruct(key, fills, initial):
     return cycles, remaining
 
 
-def reconcile(db, positions, stamp, queue_ai=True):
+def reconcile(db, positions, stamp, queue_ai=True, exchange="binance"):
     """Only matched, fully fetched ledgers update cycles. Never infer closure from a failed read."""
     grouped = {}
-    for row in db.execute("SELECT raw FROM trades ORDER BY time, CAST(id AS INTEGER)"):
+    rows = db.execute("SELECT raw FROM trades ORDER BY time, CAST(id AS INTEGER)") if exchange == "binance" else db.execute("SELECT raw FROM exchange_trades WHERE exchange=? ORDER BY time, id", (exchange,))
+    for row in rows:
         fill = json.loads(row[0])
         grouped.setdefault(position_key(fill), []).append(fill)
+    if exchange != "binance":
+        for fills in grouped.values():
+            fills.sort(key=lambda f: (f["time"], int(f.get("sequence", "0")), str(f["id"])))
     live = {position_key(p): D(p["positionAmt"]) for p in positions if D(p["positionAmt"])}
-    anchors = journal.kv("recorder_anchors", {}, db)
-    records = journal.binance_journals(db)
+    anchor_key = "recorder_anchors" if exchange == "binance" else "recorder_anchors:" + exchange
+    anchors = journal.kv(anchor_key, {}, db)
+    records = [j for j in journal.all_journals(db) if j.get("exchange", "binance") == exchange]
     issues, changed = [], set()
     for key in sorted(set(grouped) | set(live)):
         fills = grouped.get(key, [])
@@ -116,6 +121,10 @@ def reconcile(db, positions, stamp, queue_ai=True):
             issues.append(key + " 仓位与成交尚未对齐，等待补读")
             continue
         for cycle in cycles:
+            if exchange != "binance":
+                cycle["cycle_id"] = exchange + ":" + cycle["cycle_id"]
+                for event in cycle["events"]:
+                    event["id"] = exchange + ":" + event["id"]
             existing = next((j for j in records if j.get("auto_cycle_id") == cycle["cycle_id"]), None)
             # Attach a previously written manual entry without replacing its rationale or plan.
             if not existing and cycle["opened_ms"]:
@@ -137,10 +146,10 @@ def reconcile(db, positions, stamp, queue_ai=True):
                 data = {k: v for k, v in existing.items() if k not in {"id", "created", "updated"}}
             else:
                 data = {"title": cycle["symbol"].removesuffix("USDT") + " · 自动交易记录", "symbol": cycle["symbol"],
-                    "market": "Binance USDⓈ-M 永续", "timeframe": "5m", "direction": cycle["direction"],
+                    "market": {"binance": "Binance USDⓈ-M 永续", "okx": "OKX USDT 永续", "bybit": "Bybit USDT 永续"}[exchange], "exchange": exchange, "quote_currency": "USDT", "timeframe": "5m", "direction": cycle["direction"],
                     "entry_price": cycle["entry_price"], "quantity": cycle["entry_quantity"],
                     "opened_at": datetime.fromtimestamp(cycle["opened_ms"]/1000, HK).strftime("%Y-%m-%dT%H:%M:%S") if cycle["opened_ms"] else "",
-                    "source": "Binance 成交自动归档", "emotion": "未记录", "thesis": "", "invalidation": "",
+                    "source": {"binance": "Binance", "okx": "OKX", "bybit": "Bybit"}[exchange] + " 成交自动归档", "emotion": "未记录", "thesis": "", "invalidation": "",
                     "exit_plan": "", "reflection": "", "stop_loss": "", "take_profit": "", "tags": ""}
             old_execution = data.get("execution", {})
             data.update(auto_cycle_id=cycle["cycle_id"], execution=cycle, status="已平仓" if cycle["closed_ms"] else "持仓中")
@@ -166,14 +175,14 @@ def reconcile(db, positions, stamp, queue_ai=True):
             if queue_ai and trigger:
                 db.execute("INSERT OR IGNORE INTO auto_reviews VALUES(?,?,?,?,NULL)",
                     (cycle["cycle_id"] + ":" + trigger, jid, stamp + 30000, "pending"))
-    journal.set_kv(db, "recorder_anchors", anchors)
+    journal.set_kv(db, anchor_key, anchors)
     return changed, issues
 
 
-def capture_positions(db, positions, contexts, stamp):
+def capture_positions(db, positions, contexts, stamp, exchange="binance"):
     live = {position_key(p): p for p in positions if D(p["positionAmt"])}
     changed = set()
-    for j in journal.binance_journals(db):
+    for j in [j for j in journal.all_journals(db) if j.get("exchange", "binance") == exchange]:
         execution = j.get("execution", {})
         if not execution or execution.get("closed_ms"):
             continue
@@ -369,6 +378,8 @@ class Recorder:
                 self.stop.wait(2)
                 continue
             if not all(credentials(journal.ROOT)):
+                if any(journal.kv("exchange:" + x + ":snapshot") for x in ("okx", "bybit")):
+                    self.process_ai()
                 self.client = None
                 self.update_status(status="unconfigured", error=None, next_attempt=None)
                 self.stop.wait(2)

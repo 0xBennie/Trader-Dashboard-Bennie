@@ -26,7 +26,7 @@ def evidence(jid):
     selected = next((j for j in state["journals"] if j["id"] == jid), None)
     if not selected:
         raise ValueError("找不到这条交易记录。")
-    if not journal.is_binance(selected):
+    if selected.get("exchange") == "variational":
         # A screenshot journal must never borrow similarly named Binance evidence.
         return selected, {
             "journal": {k: v for k, v in selected.items() if k not in {"captures", "events", "market_captures", "execution"}},
@@ -37,10 +37,14 @@ def evidence(jid):
             "automatic_market_snapshots": [], "position_observations": [], "coverage": None,
             "fill_count": 0, "shown_fill_count": 0, "distinct_order_count_in_shown_fills": 0,
             "position_snapshot_time": None, "observed_at": state["server_time"], "timezone": "Asia/Hong_Kong"}
+    exchange = selected.get("exchange", "binance")
+    if exchange != "binance":
+        state = dict(state["exchanges"][exchange], server_time=state["server_time"])
     symbol = selected["symbol"]
     execution = selected.get("execution", {})
     with journal.connect() as db:
-        fills = [json.loads(r[0]) for r in db.execute("SELECT raw FROM trades WHERE symbol=? ORDER BY time DESC", (symbol,))]
+        rows = db.execute("SELECT raw FROM trades WHERE symbol=? ORDER BY time DESC", (symbol,)) if exchange == "binance" else db.execute("SELECT raw FROM exchange_trades WHERE exchange=? AND symbol=? ORDER BY time DESC", (exchange, symbol))
+        fills = [json.loads(r[0]) for r in rows]
     if execution:
         fills = [t for t in fills if str(t["id"]) in execution.get("fills", [])]
         fills = [dict(t, **execution.get("allocations", {}).get(str(t["id"]), {})) for t in fills]
@@ -58,14 +62,14 @@ def evidence(jid):
                 "shown_fees_by_asset": {k: str(v) for k, v in fees.items()},
                 "scope_note": "这些统计仅涵盖展示的成交，不自动等于单轮交易；不得把总买入量当成当前净持仓。"}
     # Journal text and exchange responses are evidence, never executable instructions.
-    return selected, {"journal": journal_data, "sync": state["sync"], "computed": computed,
+    return selected, {"source_scope": exchange + " USDT 永续 API；不含其他交易所。", "journal": journal_data, "sync": state["sync"], "computed": computed,
                       "automatic_market_snapshots": [dict(captured=m["captured"], interval=m["interval"], candles=m["candles"][-48:], trends=m.get("trends", {}), open_interest=m.get("open_interest", {}), note=m.get("note")) for m in selected.get("market_captures", [])[:1]],
                       "position_observations": [{"captured":c["captured"],"position":c["position"]} for c in selected.get("captures", [])[:12]],
                       "exchange_orders_and_planning": {k: v for k, v in state.get("trade_context", {}).get(symbol, {}).items() if k != "positions"},
                       "verified_research_context": journal.kv("research:" + jid, {}),
                       "coverage": state["snapshot"].get("coverage"),
                       "positions": [{k: p.get(k) for k in ("symbol", "positionSide", "positionAmt", "entryPrice", "markPrice", "unRealizedProfit", "liquidationPrice", "updateTime")}
-                                    for p in state["snapshot"].get("positions", []) if p["symbol"] == symbol],
+                                    for p in state["snapshot"].get("positions", []) if p["symbol"] == symbol and (not execution or p["positionSide"] == execution.get("positionSide"))],
                       "recent_fills": [{k: t.get(k) for k in ("symbol", "side", "positionSide", "price", "qty", "commission", "commissionAsset", "realizedPnl", "time")}
                                        for t in fills[:200]],
                       "fill_count": len(fills), "shown_fill_count": min(200, len(fills)),
