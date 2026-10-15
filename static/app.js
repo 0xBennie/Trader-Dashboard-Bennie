@@ -8,7 +8,7 @@ const signed = (value, digits = 2) => (Number(value) > 0 ? '+' : '') + fmt(value
 const precise = (value, minimum = 0) => { const [whole, fraction='']=String(value??'').split('.'); const decimals=fraction.replace(/0+$/,'').padEnd(minimum,'0'); return escapeHTML(whole.replace(/\B(?=(\d{3})+(?!\d))/g,','))+(decimals?'.'+escapeHTML(decimals):''); };
 const tone = value => Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : 'neutral';
 const date = (stamp, full = false) => stamp ? new Intl.DateTimeFormat('zh-CN', {timeZone:'Asia/Hong_Kong', year:full?'numeric':undefined, month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false}).format(new Date(stamp)) : '尚未记录';
-let journalFilters={exchange:'all',status:'all'}, filteringJournals=false;
+let journalFilters={exchange:'all',status:'all'}, pickerFilters={...journalFilters}, pickerQuery='';
 const noteSections=new Map(), evidenceSections=new Map(), panelExpansion=new Map();
 let renderedView=null;
 const expandablePanels=["review-method","more-reviews","completed-reviews","discipline-details","review-tools"];
@@ -40,6 +40,7 @@ function keepDraft() {
   const saved=dirty?drafts.write(chosen().id,editBase,formValues()):(drafts.remove(chosen().id),true);
   $('#save-state').textContent=dirty?(saved?'草稿已保存在本机':'草稿尚未备份，请保持页面打开'):'已保存';
   $('#save-state').classList.toggle('unsaved-label',dirty);
+  updateSaveButton();
 }
 function draftConflicts(j,draft) {
   if(!draft)return '';
@@ -103,31 +104,57 @@ function currentPosition(j) {
     </div>${list.length>1?'<div class="connection-inset">当前交易对存在双向持仓，请分别核对多单与空单。本页未合并均价。</div>':''}`;
 }
 
-function filteredJournals() {
-  return state.journals.filter(j=>(journalFilters.exchange==='all'||(j.exchange||'binance')===journalFilters.exchange)&&(journalFilters.status==='all'||j.status===journalFilters.status))
+function filteredJournals(filters=journalFilters,query='') {
+  const terms=query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  return state.journals.filter(j=>(filters.exchange==='all'||(j.exchange||'binance')===filters.exchange)&&(filters.status==='all'||j.status===filters.status)&&terms.every(term=>[j.symbol,j.title,j.tags,exchangeName(j)].join(' ').toLocaleLowerCase().includes(term)))
     .sort((a,b)=>(a.status==='持仓中'?0:1)-(b.status==='持仓中'?0:1)||(b.execution?.opened_ms||b.created||0)-(a.execution?.opened_ms||a.created||0));
 }
-function journalFilterBar(count) {
+function journalFilterBar(count,filters=journalFilters) {
   const exchanges=[...new Set(state.journals.map(j=>j.exchange||'binance'))].sort();
   const label=x=>({binance:'Binance',variational:'Variational',okx:'OKX',bybit:'Bybit'}[x]||x);
   const options=(list,value)=>list.map(([v,t])=>`<option value="${escapeHTML(v)}" ${v===value?'selected':''}>${escapeHTML(t)}</option>`).join('');
-  return `<section class="journal-filters" aria-label="筛选交易日志"><label>交易所<select id="journal-exchange">${options([['all','全部交易所'],...exchanges.map(x=>[x,label(x)])],journalFilters.exchange)}</select></label><label>状态<select id="journal-status">${options([['all','全部状态'],...['持仓中','已平仓','计划中','待核对'].map(x=>[x,x])],journalFilters.status)}</select></label><span class="journal-filter-count" role="status">显示 <b>${count}</b> / ${state.journals.length} 笔</span>${journalFilters.exchange!=='all'||journalFilters.status!=='all'?'<button class="button quiet small" data-action="clear-journal-filters">清除筛选</button>':''}</section>`;
+  return `<section class="journal-filters" aria-label="筛选交易日志"><label>交易所<select id="journal-exchange">${options([['all','全部交易所'],...exchanges.map(x=>[x,label(x)])],filters.exchange)}</select></label><label>状态<select id="journal-status">${options([['all','全部状态'],...['持仓中','已平仓','计划中','待核对'].map(x=>[x,x])],filters.status)}</select></label><span class="journal-filter-count" role="status">显示 <b>${count}</b> / ${state.journals.length} 笔</span><button class="button quiet small" data-action="clear-journal-filters">清除筛选</button></section>`;
 }
 function focusNoteField(name) {
   const input=$('#plan-form')?.elements[name];
   for(let parent=input?.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
   input?.scrollIntoView({block:'center'});input?.focus({preventScroll:true});
 }
+function journalNavigator(list,j) {
+  const index=list.findIndex(n=>n.id===j.id);
+  return `<div class="journal-navigator"><button class="journal-choose" data-action="choose-journal" aria-haspopup="dialog"><span class="journal-choose-icon" aria-hidden="true">⌕</span><span><small>交易目录 · ${list.length} 笔${journalFilters.exchange!=='all'||journalFilters.status!=='all'?' · 已筛选':''}</small><b>${escapeHTML(j.symbol)} <span>${exchangeName(j)}</span></b></span><span class="journal-choose-label">切换交易 <i aria-hidden="true">⌄</i></span></button><div class="journal-stepper"><span>${index+1} / ${list.length}</span><button class="button" data-action="step-journal" data-step="-1" aria-label="上一笔交易" ${index<=0?'disabled':''}>‹</button><button class="button" data-action="step-journal" data-step="1" aria-label="下一笔交易" ${index===list.length-1?'disabled':''}>›</button></div></div>`;
+}
+function journalPickerRows() {
+  return filteredJournals(pickerFilters,pickerQuery).map(j=>`<button class="journal-choice ${j.id===selectedId?'selected':''}" data-pick-journal="${escapeHTML(j.id)}" ${j.id===selectedId?'aria-current="true"':''}><span class="journal-choice-symbol">${escapeHTML(j.symbol)}<small>${exchangeName(j)} · ${j.execution?.opened_ms?'入场':'记录于'} ${date(j.execution?.opened_ms||j.created)}</small></span><span class="journal-choice-state"><b class="${j.status==='持仓中'?'is-open':''}">${escapeHTML(j.status)}</b><small>${j.review_status?.personal_complete?'复盘已完成':j.status==='已平仓'?'待写复盘':j.thesis?'已留入场想法':'待补入场想法'}</small></span><span class="journal-choice-arrow" aria-hidden="true">${j.id===selectedId?'✓':'→'}</span></button>`).join('')||'<div class="journal-picker-empty"><b>没有找到这笔交易</b><p>换个关键词，或清除交易所与状态筛选。</p><button class="button" data-action="reset-journal-picker">清除搜索和筛选</button></div>';
+}
+function refreshJournalPicker() {
+  $('#journal-picker-results').innerHTML=journalPickerRows();
+  $('#journal-picker .journal-filter-count').textContent=`找到 ${filteredJournals(pickerFilters,pickerQuery).length} / ${state.journals.length} 笔`;
+}
+function openJournalPicker(reset=true) {
+  if(reset){pickerFilters={...journalFilters};pickerQuery='';}
+  const dialog=$('#journal-picker');
+  dialog.innerHTML=`<div class="dialog-head"><div><h2 id="journal-picker-title">选择一笔交易</h2><p>找到当时的判断，接着写下这次的复盘。</p></div><button class="icon-button" data-action="close-journal-picker" aria-label="关闭交易目录">×</button></div><label class="journal-search-label">搜索交易<input id="journal-search" type="search" value="${escapeHTML(pickerQuery)}" placeholder="搜索合约、标题或标签" autocomplete="off"></label>${journalFilterBar(0,pickerFilters)}<div id="journal-picker-results" class="journal-picker-results" aria-label="交易搜索结果"></div>`;
+  refreshJournalPicker();if(!dialog.open)dialog.showModal();$('#journal-search').focus();
+}
+async function selectJournal(id,filters=journalFilters) {
+  if(!state.journals.some(j=>j.id===id))return;
+  $('#journal-picker').close();
+  if(!await saveNotes(true))return;
+  selectedId=id;journalFilters={...filters};reportId=null;
+  try{localStorage.setItem('selected-journal',selectedId);}catch{}
+  render();$('.journal-choose')?.focus({preventScroll:true});
+}
 function journalView() {
   if(!state.journals.length){editBase=null;return '<section class="panel empty"><h3>记录你的第一笔交易</h3><p>连接 Binance、OKX 或 Bybit 后可自动归档成交，也可以先手动创建一条日志。</p><button class="button primary" data-action="new">新建交易日志</button> <button class="button" data-action="settings">连接交易所</button></section>';}
-  const visible=filteredJournals(), filters=journalFilterBar(visible.length);
-  if(!visible.length){editBase=null;return filters+'<section class="panel empty"><h3>没有符合条件的日志</h3><p>试试其他交易所或状态，已有记录仍保留在账本中。</p><button class="button" data-action="clear-journal-filters">显示全部日志</button></section>';}
+  const visible=filteredJournals();
+  if(!visible.length){editBase=null;return '<section class="panel empty"><h3>没有符合条件的日志</h3><p>试试其他交易所或状态，已有记录仍保留在账本中。</p><button class="button" data-action="choose-journal">搜索交易</button> <button class="button" data-action="clear-journal-filters">显示全部日志</button></section>';}
   if(!visible.some(j=>j.id===selectedId))selectedId=visible[0].id;
   const j=chosen();
   const imageSources=[...(Array.isArray(j.images)?j.images:[]),...(j.image?[{url:j.image,label:'你补充的原始截图',timeframe:j.timeframe}]:[])];
   const images=imageSources.filter((item,index,all)=>item&&typeof item.url==='string'&&/^\/assets\/[A-Za-z0-9_-]+\.(png|jpe?g|webp)$/.test(item.url)&&all.findIndex(x=>x?.url===item.url)===index);
-  return `<div class="journal-selection">${filters}<label class="mobile-journal-picker">当前交易<select id="mobile-journal-picker">${visible.map(n=>`<option value="${escapeHTML(n.id)}" ${n.id===j.id?'selected':''}>${escapeHTML(n.symbol)} · ${exchangeName(n)} · ${escapeHTML(n.status)} · ${n.execution?.opened_ms?'入场 ':'记录于 '}${date(n.execution?.opened_ms||n.created)}</option>`).join('')}</select></label></div>
-    <div class="journal-layout"><div class="journal-main"><section class="panel">${currentPosition(j)}${JournalDashboard.cycleSummary(j)}<div class="journal-share-entry"><button class="button" data-action="share-trade">分享这笔交易 ↗</button></div></section>${notesForm(j)}<details class="journal-evidence panel" ${evidenceSections.get(j.id)?'open':''}><summary>行情、截图与过程证据</summary>
+  return `${journalNavigator(visible,j)}
+    <div class="journal-layout"><div class="journal-main"><section class="panel">${currentPosition(j)}${JournalDashboard.cycleSummary(j)}<div class="journal-share-entry"><button class="button primary" data-action="focus-note" data-field="${j.status==='已平仓'?'reflection':'thesis'}">${j.status==='已平仓'?(j.review_status?.personal_complete?'查看我的复盘':'写这笔复盘'):'记录入场想法'} <span aria-hidden="true">↓</span></button><button class="button" data-action="share-trade">分享交易 ↗</button></div></section>${notesForm(j)}<details class="journal-evidence panel" ${evidenceSections.get(j.id)?'open':''}><summary>行情、截图与过程证据</summary>
     <div id="automatic-market">${external(j)?externalSnapshot(j):JournalRecorder.market(j)}</div>
     ${images.map(item=>`<details class="original-image"><summary>查看${escapeHTML(item.label||'交易截图')} · ${escapeHTML(item.timeframe||j.timeframe)}</summary><button class="chart-button" data-action="image" data-image="${escapeHTML(item.url)}" aria-label="放大${escapeHTML(item.label||'交易截图')}"><img class="chart-image" src="${escapeHTML(item.url)}" alt="${escapeHTML(j.symbol)} ${escapeHTML(item.label||'用户提供的历史截图')}"><span class="expand-label">⤢ 查看原图</span></button></details>`).join('')}
     <div class="connection-inset">${external(j)?'用户截图已归档；未接入 Variational 自动采集，当前仓位与挂单状态待核对。':position().length?`持仓数据：${date(journalAccount(j).snapshot.captured_at,true)} 快照。持仓均价不等于单笔成交价。`:j.execution?`已关联 ${exchangeName(j)} 实际成交${j.execution.closed_ms?' · '+date(j.execution.closed_ms,true)+' 已平仓':''}。`:'记录字段待核对，尚未关联特定成交。'} </div>
@@ -150,9 +177,9 @@ function notesForm(j) {
   editBase={...j};dirty=false;
   if(draft){const changed=JournalClient.changedFields(draft.base,draft.values);for(const key of Object.keys(changed))editBase[key]=draft.base[key]??'';j=drafts.restore(j,draft);dirty=Object.keys(changed).length>0;}
   const open=noteSections.get(j.id)||[j.status==='已平仓'?'reflection':'thesis'];
-  const section=(key,number,title,sub,body)=>`<details class="note-section" data-note-section="${key}" ${open.includes(key)?'open':''}><summary><span><b>${title}</b><small>${sub}</small></span><span class="note-chevron" aria-hidden="true">⌄</span></summary><div class="note-section-body">${body}</div></details>`;
+  const section=(key,number,title,sub,body)=>`<details class="note-section" data-note-section="${key}" ${open.includes(key)?'open':''}><summary><span class="note-number" aria-hidden="true">${number}</span><span class="note-section-copy"><b>${title}</b><small>${sub}</small></span><span class="note-chevron" aria-hidden="true">⌄</span></summary><div class="note-section-body">${body}</div></details>`;
   const present=key=>String(j[key]||'').trim().length>0;
-  return `<section class="panel notes-panel"><div class="panel-heading"><h3>我的交易笔记</h3><span class="sub-label" id="save-state" role="status">${dirty?'草稿已恢复 · 尚未提交':'已保存'}</span></div><p class="note-intro">${j.execution?.closed_ms?(j.review_status?.personal_complete?'✓ 本人复盘已完成，修改后会继续保留历史版本。':'先写一句实际执行与下一次改进，保存后计入本人复盘。'):'先留下一句入场理由，其余内容按需展开。修改会保留历史版本。'}</p><form id="plan-form" novalidate data-journal-id="${escapeHTML(j.id)}">${conflict}
+  return `<section class="panel notes-panel"><div class="panel-heading"><h3>我的交易笔记</h3><span class="sub-label ${dirty?'unsaved-label':''}" id="save-state" role="status">${dirty?'草稿已恢复 · 尚未提交':'已保存'}</span></div><p class="note-intro">${j.execution?.closed_ms?(j.review_status?.personal_complete?'✓ 本人复盘已完成，修改后会继续保留历史版本。':'先写一句实际执行与下一次改进，保存后计入本人复盘。'):'先留下一句入场理由，其余内容按需展开。修改会保留历史版本。'}</p><form id="plan-form" novalidate data-journal-id="${escapeHTML(j.id)}">${conflict}
   ${section('thesis','01','入场想法',present('thesis')?'已记录入场理由':'补一句当时为什么入场',`
     <label>为什么在这里入场？<textarea name="thesis" placeholder="当时看到了什么？你预期价格会怎样走？">${escapeHTML(j.thesis)}</textarea></label>
     <div class="form-grid"><label>入场时的情绪<select name="emotion">${['未记录','平静','犹豫','急于入场','担心错过','想扳回亏损','其他'].map(e=>`<option ${j.emotion===e?'selected':''}>${e}</option>`).join('')}</select></label>${field(j,'tags','策略标签','例如：支撑反弹、趋势回踩')}</div>`)}
@@ -165,12 +192,12 @@ function notesForm(j) {
     <div class="form-grid">${field(j,'title','日志标题','给这一笔起个名字')}${field(j,'symbol','合约 / 交易对',external(j)?'CRCL':'ETHUSDT')}</div>
     <div class="form-grid three"><label>方向<select name="direction">${[['UNKNOWN','待核对'],['LONG','做多'],['SHORT','做空']].map(([v,t])=>`<option value="${v}" ${j.direction===v?'selected':''}>${t}</option>`).join('')}</select></label><label>记录状态<select name="status">${['待核对','计划中','持仓中','已平仓'].map(t=>`<option ${j.status===t?'selected':''}>${t}</option>`).join('')}</select></label>${field(j,'opened_at','入场时间（香港）','','datetime-local')}</div>
     <div class="form-grid">${field(j,'entry_price',`记录入场价（${currency(j)}）`,'待核对','number')}${field(j,'quantity','数量（基础币）','待核对','number')}</div><p class="helper">${external(j)?'USD 表示截图美元标价，结算资产待核对。':'与实际成交自动归档的证据分别保留。'}${position().length===1?'<button type="button" class="button text-button" data-action="use-position">填入当前持仓均价与数量</button>':''}</p>`)}
-  <div class="form-actions note-save-bar"><span>草稿留在本机，保存后同步到服务器。<br>没有填写的原始想法不会由 AI 代填。</span><button class="button primary" type="submit">保存交易笔记</button></div></form></section>`;
+  <div class="form-actions note-save-bar"><span>草稿自动保留，保存后同步<span class="save-shortcut">⌘ / Ctrl + Enter 保存</span></span><button class="button primary" type="submit" ${dirty?'':'disabled'}>${dirty?'保存笔记':'已保存'}</button></div></form></section>`;
 }
 
 function aiPanel(j) {
   const list=reports(), report=list.find(a=>a.status==='complete'), running=list.some(a=>a.status==='running'), failed=list.find(a=>a.status==='failed');
-  return `<section class="panel ai-panel"><div class="ai-title"><h3>AI 复盘</h3><span class="model-chip">${state.ai?.available?'已配置':'未配置'}</span></div>
+  return `<section class="panel ai-panel ${state.ai?.available?'':'ai-unconfigured'}"><div class="ai-title"><h3>AI 复盘</h3><span class="model-chip">${state.ai?.available?'已配置':'未配置'}</span></div>
   ${report&&report.journal_updated!==j.updated?'<p class="report-stale">笔记已更新，下面的报告基于旧版本。请重新生成后对照。</p>':''}
   ${report?`<div class="ai-insight"><b>${escapeHTML(report.title)}</b><br>${escapeHTML(report.summary)}</div>`:`<div class="ai-insight">从这笔 <b>${escapeHTML(j.symbol.replace('USDT',''))} 交易</b>开始，整理当时的判断。</div><div class="ai-check"><span>✓</span><span>${j.image?'原始截图已保存':'交易日志已保存'}</span></div><div class="ai-check"><span>${!external(j)&&journalAccount(j).snapshot.captured_at?'✓':'○'}</span><span>${external(j)?'仅截图证据 · 无成交账单':journalAccount(j).snapshot.captured_at?'交易所持仓与成交已同步':'账户数据等待同步'}</span></div><div class="ai-check"><span>○</span><span>${j.thesis?'开仓理由已记录':'补充开仓理由，复盘才有参照'}</span></div>`}
   ${running?'<div class="busy-row"><span class="loading-mark"></span>正在阅读截图与成交证据…<br>完成后报告会自动保存。</div>':''}
@@ -233,6 +260,11 @@ function analyticsView() { return ledgerPicker()+JournalAnalytics.render({...led
 
 function render() { if(renderedView)for(const name of expandablePanels){const panel=$('.'+name);if(panel)panelExpansion.set(renderedView+':'+name,panel.open);} const previous=$('#plan-form');if(previous){noteSections.set(previous.dataset.journalId,[...previous.querySelectorAll('[data-note-section][open]')].map(d=>d.dataset.noteSection));evidenceSections.set(previous.dataset.journalId,Boolean($('.journal-evidence')?.open));} if(state)chrome(); else document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal'; $('#content').innerHTML=JournalTraining.routes.includes(view)?JournalTraining.render(view):({journal:journalView,trades:tradesView,review:reviewView,analytics:analyticsView,share:()=>JournalSharing.render(state)}[view])(); if(view==='share')JournalSharing.mount(); if(view==='trades')renderTrades(); for(const name of expandablePanels){const panel=$('.'+name),open=panelExpansion.get(view+':'+name);if(panel&&open!==undefined)panel.open=open;}renderedView=view; }
 async function refresh(renderBody=true) { state=await api('/api/state'); if(!state.journals.some(j=>j.id===selectedId))selectedId=state.journals[0]?.id; chrome(); if(renderBody&&!dirty)render(); }
+function updateSaveButton() {
+  const button=$('#plan-form [type="submit"]');if(!button)return;
+  button.disabled=savingNotes||!dirty;
+  button.textContent=savingNotes?'正在保存…':dirty?'保存笔记':'已保存';
+}
 async function saveNotes(silent=false) {
   const form=$('#plan-form'); if(!form||!dirty)return true;
   if(savingNotes)return false;
@@ -250,17 +282,18 @@ async function saveNotes(silent=false) {
     else{drafts.remove(jid);dirty=false;await refresh();await JournalTraining.reload(false);}
     if(!silent)toast(editedWhileSaving?'已保存刚才提交的版本，新的修改仍在草稿中。':(saved.reflection?.trim()&&state.journals.find(j=>j.id===jid)?.review_status?.personal_complete?'本人复盘已完成，进度已更新。':'交易笔记已保存，历史版本已保留。'));return !editedWhileSaving;
   }catch(error){toast(error.message);return false;}
-  finally{savingNotes=false;const b=$('#plan-form [type="submit"]');if(b){b.disabled=false;b.textContent='保存交易笔记';}}
+  finally{savingNotes=false;updateSaveButton();}
 }
 async function sync() { const x=syncExchange();if(x!=='binance'){if(!state.exchanges?.[x]?.configured){openAISettings();toast('先在连接设置中填写 '+exchangeName({exchange:x})+' 只读 API 凭证。');return;}try{await api(`/api/exchanges/${x}/sync`,{days:Number($('#sync-days').value)||30});toast('开始同步 '+exchangeName({exchange:x})+'。');await refresh(false);}catch(error){toast(error.message);}return;} if(!state.credentials_configured){openAISettings();toast('先在连接设置中填写 Binance 只读 API 凭证。');return;}try{await api('/api/sync',{days:Number($('#sync-days').value)});toast('开始读取 Binance 数据。');setTimeout(()=>refresh(false).catch(e=>toast(e.message)),150);}catch(error){toast(error.message);} }
 async function analyze() { if(!await saveNotes(true))return;const gate=JournalWorkflow.aiEntry(state,chosen(),reports(),navigator.onLine);if(gate.action!=='analyze'){if(gate.action==='ai-settings')openAISettings();else if(gate.action==='dashboard-journal'){view='journal';render();focusNoteField('thesis');}toast(gate.hint);return;}try{const result=await api('/api/analyze',{id:chosen().id});reportId=result.id;view='review';await refresh();toast('AI 复盘已开始，报告会自动保存。');}catch(error){toast(error.message);} }
 
 function openAISettings(){JournalAISettings.show(state.ai);JournalExchanges.show(state.exchanges);$('#settings-status').textContent=`Binance：${state.credentials_configured?'已保存密钥':'尚未配置'}。${state.sync.error||'读取持仓、成交与账单。'}`;$('#settings-dialog').showModal();}
 JournalAISettings.bind();
-function refreshAIEntries(){document.querySelectorAll('[data-ai-entry]').forEach(el=>{el.outerHTML=JournalWorkflow.aiButton(state,chosen(),reports(),navigator.onLine);});}
+function refreshAIEntries(){document.querySelectorAll('[data-ai-entry]').forEach(el=>{el.outerHTML=JournalWorkflow.aiButton(state,chosen(),reports(),navigator.onLine);});const panel=$('.ai-panel');if(panel){panel.classList.toggle('ai-unconfigured',!state.ai?.available);panel.querySelector('.model-chip').textContent=state.ai?.available?'已配置':'未配置';}}
 document.addEventListener('click', async event=>{
   const button=event.target.closest('button,[data-action]');if(!button)return;
   try {
+    if(button.dataset.pickJournal){await selectJournal(button.dataset.pickJournal,pickerFilters);return;}
     if(button.dataset.analyticsDay){analyticsDay=button.dataset.analyticsDay;render();return;}
     if(button.dataset.analyticsMonth){analyticsMonth=button.dataset.analyticsMonth;render();return;}
     if(button.dataset.resolve){const key=button.dataset.resolve;if(button.dataset.version==='saved')$('#plan-form').elements[key].value=chosen()[key]??'';editBase[key]=chosen()[key]??'';keepDraft();render();return;}
@@ -275,7 +308,12 @@ document.addEventListener('click', async event=>{
     if(action==='dashboard-journal'||action==='dashboard-analytics'){if(!await saveNotes(true))return;if(button.dataset.exchangeFilter)journalFilters={exchange:button.dataset.exchangeFilter,status:'all'};if(button.dataset.openJournal){journalFilters={exchange:'all',status:'all'};selectedId=button.dataset.openJournal;try{localStorage.setItem('selected-journal',selectedId);}catch{}}view=action==='dashboard-journal'?'journal':'analytics';render();const focus=button.dataset.focusField;if(['thesis','reflection','invalidation','exit_plan','stop_loss'].includes(focus)){focusNoteField(focus);}else window.scrollTo(0,0);return;}
     if(action==='logout'){if(!await saveNotes(true))return;await api('/api/logout',{});dirty=false;document.body.hidden=true;location.replace('/login');return;}
     if(action==='orders'){if(!await saveNotes(true))return;view='trades';tradeMode='orders';orderFilter=null;render();window.scrollTo(0,0);}
-    if(action==='clear-journal-filters'){if(!await saveNotes(true))return;journalFilters={exchange:'all',status:'all'};render();return;}
+    if(action==='choose-journal'){openJournalPicker();return;}
+    if(action==='close-journal-picker'){$('#journal-picker').close();return;}
+    if(action==='reset-journal-picker'){pickerFilters={exchange:'all',status:'all'};pickerQuery='';openJournalPicker(false);return;}
+    if(action==='step-journal'){const list=filteredJournals(),index=list.findIndex(j=>j.id===selectedId),step=Number(button.dataset.step);if([-1,1].includes(step)&&list[index+step])await selectJournal(list[index+step].id);return;}
+    if(action==='focus-note'){if(['thesis','reflection'].includes(button.dataset.field))focusNoteField(button.dataset.field);return;}
+    if(action==='clear-journal-filters'){if(button.closest('#journal-picker')){pickerFilters={exchange:'all',status:'all'};openJournalPicker(false);return;}if(!await saveNotes(true))return;journalFilters={exchange:'all',status:'all'};render();return;}
     if(action==='clear-order-filter'){orderFilter=null;render();}
     if(action==='recorder-settings'){const f=$('#recorder-form');f.elements.enabled.checked=state.recorder_settings.enabled;f.elements.auto_ai.checked=state.recorder_settings.auto_ai;f.elements.interval.value=state.recorder_settings.interval;$('#recorder-dialog').showModal();}
     if(action==='close-recorder')$('#recorder-dialog').close();
@@ -300,7 +338,7 @@ document.addEventListener('click', async event=>{
 });
 document.addEventListener('submit',async event=>{
   event.preventDefault();
-  if(event.target.id==='plan-form'){dirty=true;await saveNotes();}
+  if(event.target.id==='plan-form'){await saveNotes();}
   if(event.target.id==='recorder-form'){const f=event.target;try{await api('/api/recorder',{enabled:f.elements.enabled.checked,auto_ai:f.elements.auto_ai.checked,interval:Number(f.elements.interval.value)});$('#recorder-dialog').close();await refresh(false);toast('采集设置已保存。');}catch(error){toast(error.message);}}
   if(event.target.id==='ai-settings-form'){
     const payload=JournalAISettings.payload(event.target);JournalAISettings.busy(true);
@@ -316,17 +354,16 @@ document.addEventListener('submit',async event=>{
 document.addEventListener('input',event=>{
   if(event.target.closest('#plan-form'))keepDraft();
   if(event.target.id==='trade-search')renderTrades();
+  if(event.target.id==='journal-search'){pickerQuery=event.target.value;refreshJournalPicker();}
 });
-document.addEventListener('change',async e=>{if(e.target.id!=='mobile-journal-picker')return;const target=e.target.value;if(!await saveNotes(true)){e.target.value=selectedId;return;}selectedId=target;try{localStorage.setItem('selected-journal',selectedId);}catch{}reportId=null;render();});
+document.addEventListener('keydown',event=>{
+  if((event.metaKey||event.ctrlKey)&&event.key==='Enter'&&event.target.closest('#plan-form')){event.preventDefault();if(dirty&&!savingNotes)$('#plan-form').requestSubmit();}
+});
 document.addEventListener('change',async event=>{
   if(event.target.id==='ledger-exchange'){ledgerExchange=event.target.value;orderFilter=null;render();return;}
   if(['journal-exchange','journal-status'].includes(event.target.id)){
     const key=event.target.id==='journal-exchange'?'exchange':'status',value=event.target.value;
-    if(filteringJournals){event.target.value=journalFilters[key];return;}
-    filteringJournals=true;
-    document.querySelectorAll('.journal-filters select').forEach(el=>el.disabled=true);
-    try{if(!await saveNotes(true)){event.target.value=journalFilters[key];return;}journalFilters[key]=value;render();}
-    finally{filteringJournals=false;document.querySelectorAll('.journal-filters select').forEach(el=>el.disabled=false);}return;
+    pickerFilters[key]=value;refreshJournalPicker();return;
   }
   if(event.target.closest('#plan-form'))keepDraft();
   if(event.target.id==='market-capture'){JournalRecorder.selectMarket(chosen().id,event.target.value);$('#automatic-market').innerHTML=JournalRecorder.market(chosen());}
