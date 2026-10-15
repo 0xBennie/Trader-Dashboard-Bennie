@@ -33,7 +33,7 @@ const verified = () => Boolean(state.snapshot.captured_at);
 
 const drafts = JournalClient.draftStore(window.localStorage);
 const api = JournalClient.createApi(window.fetch.bind(window), () => state?.csrf, token => {if(state)state.csrf=token;}, () => {document.body.hidden=true;location.replace('/login'+location.hash);});
-function formValues() {return Object.fromEntries(new FormData($('#plan-form')));}
+function formValues() {return JournalLearning.values($('#plan-form'));}
 function keepDraft() {
   if(!$('#plan-form')||!editBase)return;
   dirty=Object.keys(JournalClient.changedFields(editBase,formValues())).length>0;
@@ -45,7 +45,7 @@ function keepDraft() {
 function draftConflicts(j,draft) {
   if(!draft)return '';
   const changed=JournalClient.changedFields(draft.base,draft.values);
-  const labels={thesis:'入场理由',emotion:'情绪',stop_loss:'计划止损',take_profit:'计划目标',exit_plan:'退出计划',invalidation:'失效条件',reflection:'复盘',quantity:'数量',entry_price:'入场价'};
+  const labels={review_keep:'做对的地方',review_next:'下一笔改进',review_execution:'执行评价',review_mistakes:'改进问题',thesis:'入场理由',emotion:'情绪',stop_loss:'计划止损',take_profit:'计划目标',exit_plan:'退出计划',invalidation:'失效条件',reflection:'复盘',quantity:'数量',entry_price:'入场价'};
   const conflicts=Object.keys(changed).filter(k=>String(j[k]??'')!==String(draft.base[k]??'')&&String(j[k]??'')!==String(changed[k]));
   return conflicts.length?`<div class="draft-conflict"><b>这些字段有两个版本，请选择保留哪一个</b>${conflicts.map(k=>`<div><strong>${escapeHTML(labels[k]||k)}</strong><p>已保存：${escapeHTML(j[k]||'空白')}</p><p>你的草稿：${escapeHTML(changed[k]||'空白')}</p><button type="button" class="button small" data-resolve="${escapeHTML(k)}" data-version="mine">保留我的草稿</button> <button type="button" class="button small" data-resolve="${escapeHTML(k)}" data-version="saved">采用已保存值</button></div>`).join('')}</div>`:'';
 }
@@ -187,7 +187,7 @@ function notesForm(j) {
     <div class="form-grid">${field(j,'stop_loss',`计划止损（${currency(j)}）`,'补充失效位置','number')}${field(j,'take_profit',`计划目标（${currency(j)}）`,'补充止盈位置','number')}</div>
     <div class="form-grid"><label>什么情况说明我错了？<textarea name="invalidation" placeholder="记录具体、可观察的失效条件">${escapeHTML(j.invalidation)}</textarea></label><label>准备怎样退出？<textarea name="exit_plan" placeholder="止损、止盈与调整仓位的条件">${escapeHTML(j.exit_plan)}</textarea></label></div>
     <div class="note-subheading">盈利保护 <small>由你设置和操作</small></div><div class="form-grid">${field(j,'protect_trigger_pct','有利方向的价格涨幅（%）','例如 1.5','number')}${field(j,'protect_price',`触发后计划止损价（${currency(j)}）`,'填写保护价','number')}</div><p class="helper">按价格相对持仓均价的变化计算，不是含杠杆收益率。留空表示未设定；${external(j)?'该交易所尚未自动同步，触发条件需自行核对。':'保存后仅按同步快照核对。'}计划不会在交易所创建或修改订单。</p>`)}
-  ${section('reflection','03','持仓观察与复盘',present('reflection')?'已写下个人观察 / 复盘':'记下执行过程，以及下一次要改进的事',`<label>持仓观察 / 平仓后的复盘<textarea name="reflection" placeholder="实际发生了什么？哪些动作符合计划，哪些偏离了？下一笔如何改进？">${escapeHTML(j.reflection)}</textarea></label><p class="helper">这是你的个人复盘，AI 分析单独保留。</p>`)}
+  ${section('reflection','03','持仓观察与复盘',['reflection','review_keep','review_next'].some(present)?'已写下个人观察 / 复盘':'记下执行过程，以及下一次要改进的事',`<label>持仓观察 / 平仓后的复盘<textarea name="reflection" placeholder="实际发生了什么？哪些动作符合计划，哪些偏离了？下一笔如何改进？">${escapeHTML(j.reflection)}</textarea></label><p class="helper">这是你的个人复盘，AI 分析单独保留。</p>${JournalLearning.fields(j)}`)}
   ${section('facts','04','交易信息','核对合约、数量、时间与记录状态',`
     <div class="form-grid">${field(j,'title','日志标题','给这一笔起个名字')}${field(j,'symbol','合约 / 交易对',external(j)?'CRCL':'ETHUSDT')}</div>
     <div class="form-grid three"><label>方向<select name="direction">${[['UNKNOWN','待核对'],['LONG','做多'],['SHORT','做空']].map(([v,t])=>`<option value="${v}" ${j.direction===v?'selected':''}>${t}</option>`).join('')}</select></label><label>记录状态<select name="status">${['待核对','计划中','持仓中','已平仓'].map(t=>`<option ${j.status===t?'selected':''}>${t}</option>`).join('')}</select></label>${field(j,'opened_at','入场时间（香港）','','datetime-local')}</div>
@@ -279,8 +279,8 @@ async function saveNotes(silent=false) {
     const latest=formValues(), editedWhileSaving=JSON.stringify(latest)!==JSON.stringify(values);
     editBase=saved;
     if(editedWhileSaving){drafts.write(jid,saved,latest);dirty=true;await refresh(false);keepDraft();}
-    else{drafts.remove(jid);dirty=false;await refresh();await JournalTraining.reload(false);}
-    if(!silent)toast(editedWhileSaving?'已保存刚才提交的版本，新的修改仍在草稿中。':(saved.reflection?.trim()&&state.journals.find(j=>j.id===jid)?.review_status?.personal_complete?'本人复盘已完成，进度已更新。':'交易笔记已保存，历史版本已保留。'));return !editedWhileSaving;
+    else{drafts.remove(jid);dirty=false;await refresh();await JournalTraining.reload(false);await JournalLearning.changed();}
+    if(!silent)toast(editedWhileSaving?'已保存刚才提交的版本，新的修改仍在草稿中。':(state.journals.find(j=>j.id===jid)?.review_status?.personal_complete?'本人复盘已完成，进度已更新。':'交易笔记已保存，历史版本已保留。'));return !editedWhileSaving;
   }catch(error){toast(error.message);return false;}
   finally{savingNotes=false;updateSaveButton();}
 }
@@ -296,7 +296,7 @@ document.addEventListener('click', async event=>{
     if(button.dataset.pickJournal){await selectJournal(button.dataset.pickJournal,pickerFilters);return;}
     if(button.dataset.analyticsDay){analyticsDay=button.dataset.analyticsDay;render();return;}
     if(button.dataset.analyticsMonth){analyticsMonth=button.dataset.analyticsMonth;render();return;}
-    if(button.dataset.resolve){const key=button.dataset.resolve;if(button.dataset.version==='saved')$('#plan-form').elements[key].value=chosen()[key]??'';editBase[key]=chosen()[key]??'';keepDraft();render();return;}
+    if(button.dataset.resolve){const key=button.dataset.resolve;if(button.dataset.version==='saved'){if(key==='review_mistakes'){$('#plan-form').querySelectorAll('[name="_review_mistake"]').forEach(el=>el.checked=String(chosen()[key]||'').split(',').includes(el.value));}else $('#plan-form').elements[key].value=chosen()[key]??'';}editBase[key]=chosen()[key]??'';keepDraft();render();return;}
     if(button.dataset.action==='share-trade'){if(!await saveNotes(true))return;JournalSharing.openTrade(chosen());view='share';render();window.scrollTo(0,0);return;}
     if(button.dataset.view){if(!await saveNotes(true))return;view=button.dataset.view;render();window.scrollTo(0,0);return;}
     if(button.dataset.journal){if(!await saveNotes(true))return;selectedId=button.dataset.journal;try{window.localStorage.setItem('selected-journal',selectedId);}catch{}reportId=null;render();return;}
@@ -304,6 +304,7 @@ document.addEventListener('click', async event=>{
     if(button.dataset.tradeMode){tradeMode=button.dataset.tradeMode;orderFilter=null;render();return;}
     if(button.dataset.orderKey){tradeMode='fills';orderFilter={key:button.dataset.orderKey,symbol:button.dataset.symbol};render();return;}
     const action=button.dataset.action;
+    if(action==='pin-review-action'){if(!await saveNotes(true))return;await api('/api/review/actions',{journal_id:chosen().id});await refresh();await JournalLearning.reload();toast('已加入首页提醒；下一笔结束后可以记录实践。');return;}
     if(!state&&['settings','ai-settings','recorder-settings'].includes(action)){toast('正在读取连接信息，请稍后再试。');return;}
     if(action==='dashboard-journal'||action==='dashboard-analytics'){if(!await saveNotes(true))return;if(button.dataset.exchangeFilter)journalFilters={exchange:button.dataset.exchangeFilter,status:'all'};if(button.dataset.openJournal){journalFilters={exchange:'all',status:'all'};selectedId=button.dataset.openJournal;try{localStorage.setItem('selected-journal',selectedId);}catch{}}view=action==='dashboard-journal'?'journal':'analytics';render();const focus=button.dataset.focusField;if(['thesis','reflection','invalidation','exit_plan','stop_loss'].includes(focus)){focusNoteField(focus);}else window.scrollTo(0,0);return;}
     if(action==='logout'){if(!await saveNotes(true))return;await api('/api/logout',{});dirty=false;document.body.hidden=true;location.replace('/login');return;}
@@ -389,5 +390,6 @@ if(location.hash==='#strategies')history.replaceState(null,'','#training');
 const initialRoute=location.hash.slice(1);if(['training','progress','journal','trades','review','analytics','share'].includes(initialRoute))view=initialRoute;
 JournalExchanges.init({api,refresh,state:()=>state,toast});
 JournalSharing.init({api,toast,render:()=>render()});
+JournalLearning.init({api,toast,state:()=>state,refresh,render:()=>{if(view==='progress')render();}});
 JournalTraining.init({api,toast,openAISettings,accountState:()=>state,render:()=>{if(JournalTraining.routes.includes(view))render();},navigate:next=>{view=next;render();window.scrollTo(0,0);}});
 refresh().catch(error=>{if(JournalTraining.routes.includes(view)){render();return;}$('#content').innerHTML=`<section class="panel empty"><h3>无法读取本地服务</h3><p>${escapeHTML(error.message)}</p><p>请确认“启动交易手记.command”正在运行，再刷新页面。</p></section>`;});

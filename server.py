@@ -23,6 +23,7 @@ import pretrade_ai
 import pretrade_evidence
 import auth
 import sharing
+import review_learning
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -160,6 +161,9 @@ class Handler(BaseHTTPRequestHandler):
                 data.update(csrf=session['csrf'] if session else TOKEN, ai=ai_review.status(), credentials_configured=all(credentials(ROOT)),
                             auth={'enabled': bool(self.authentication and self.authentication.enabled), 'username': self.authentication.account['username'] if session else ''})
                 return self.send(200, data)
+            if route.path == '/api/review/learning':
+                query = parse_qs(route.query)
+                return self.send(200, review_learning.report(int(query.get('days', ['30'])[0]), query.get('exchange', ['all'])[0]))
             if route.path == "/api/ai":
                 return self.send(200, ai_provider.status())
             if route.path == '/api/shares':
@@ -274,6 +278,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("不支持此计划操作。")
             if path.startswith(("/api/v1/strategies", "/api/v1/backtests", "/api/v1/chart-hypothesis")):
                 return self.send(410, {"error": "策略实验与历史回测已移除，不再创建实验。"})
+            review_routes = {'/api/review/actions': review_learning.create_action,
+                             '/api/review/actions/archive': review_learning.archive_action,
+                             '/api/review/practices': review_learning.practice,
+                             '/api/review/practices/undo': review_learning.undo_practice}
+            if path in review_routes:
+                return self.send(200, review_routes[path](payload))
             if path == "/api/journals":
                 return self.send(200, journal.save_journal(payload))
             if path == '/api/shares/preview':

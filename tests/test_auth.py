@@ -47,12 +47,12 @@ class AuthTests(unittest.TestCase):
         return headers['Set-Cookie'].split(';')[0]
 
     def test_all_private_routes_are_gated_before_read_or_write(self):
-        for path in ['/api/state', '/api/ai', '/api/export', '/api/v1/intents', '/assets/private-attachment.png', '/index.html']:
+        for path in ['/api/review/learning', '/learning.js', '/api/state', '/api/ai', '/api/export', '/api/v1/intents', '/assets/private-attachment.png', '/index.html']:
             self.assertEqual(self.request(path)[0], 401, path)
         with patch.object(server.journal, 'save_journal') as save:
             self.assertEqual(self.request('/api/journals', {'id': 'private'}, csrf=server.TOKEN)[0], 401)
             save.assert_not_called()
-        for route in ['/api/ai/config', '/api/ai/check', '/api/ai/models']:
+        for route in ['/api/review/actions', '/api/review/actions/archive', '/api/review/practices', '/api/review/practices/undo', '/api/ai/config', '/api/ai/check', '/api/ai/models']:
             self.assertEqual(self.request(route, {'api_key':'sk-fixture'}, csrf=server.TOKEN)[0], 401)
         self.assertEqual(self.request('/login')[0], 200)
 

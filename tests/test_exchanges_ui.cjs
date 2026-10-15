@@ -35,7 +35,7 @@ test('OKX journal uses OKX position, fee unit and order context',()=>{
  const source=fs.readFileSync('static/app.js','utf8').split('function tradesView()')[0];
  const j={id:'okx1',exchange:'okx',symbol:'XYZUSDT',status:'持仓中',direction:'LONG',entry_price:'100',quantity:'2',risk:{valid:false,reason:'待补充'},execution:{positionSide:'BOTH'}};
  const fixture={journals:[j],analyses:[],snapshot:{positions:[{symbol:'XYZUSDT',positionAmt:'999',entryPrice:'999'}]},exchanges:{okx:{snapshot:{captured_at:now,positions:[{symbol:'XYZUSDT',positionSide:'BOTH',positionAmt:'2',entryPrice:'100',markPrice:'102',unRealizedProfit:'4'}]},trade_context:{}}}};
- const c=vm.createContext({fixture,navigator:{onLine:true},JournalWorkflow:require('../static/workflow.js'),window:{localStorage:{getItem:()=>null},fetch:()=>{}},JournalClient:{draftStore:()=>({read:()=>null}),createApi:()=>{}},JournalRecorder:{price:v=>String(v),market:()=>'',observations:()=>''},JournalDashboard:dashboard});
+ const c=vm.createContext({JournalLearning:require('../static/learning.js'),fixture,navigator:{onLine:true},JournalWorkflow:require('../static/workflow.js'),window:{localStorage:{getItem:()=>null},fetch:()=>{}},JournalClient:{draftStore:()=>({read:()=>null}),createApi:()=>{}},JournalRecorder:{price:v=>String(v),market:()=>'',observations:()=>''},JournalDashboard:dashboard});
  const html=vm.runInContext(source+'\nstate=fixture;selectedId="okx1";journalView()',c);
  assert.match(html,/OKX · USDT 永续/);assert.match(html,/记录入场价（USDT）/);
  assert.doesNotMatch(html,/999|Variational · 截图记录|尚未接入 Variational/);

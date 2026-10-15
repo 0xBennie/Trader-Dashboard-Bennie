@@ -91,15 +91,16 @@ def config(payload, stamp):
 
 def first_review(db, item):
     closed = (item.get('execution') or {}).get('closed_ms')
-    if not closed or not str(item.get('reflection') or '').strip():
+    import review_learning
+    if not closed or not any(review_learning.content(item)):
         return None
     versions = [(r[0], json.loads(r[1])) for r in db.execute(
         'SELECT time,data FROM revisions WHERE journal_id=? ORDER BY id', (item['id'],))]
     versions.append((item['updated'], item))
-    previous = ''
+    previous = ('', '', '')
     for stamp, version in versions:
-        value = str(version.get('reflection') or '').strip()
-        if value and value != previous and stamp >= closed:
+        value = review_learning.content(version)
+        if any(text and text != old for text, old in zip(value, previous)) and stamp >= closed:
             return stamp
         previous = value
     return None

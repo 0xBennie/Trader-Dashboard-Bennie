@@ -47,6 +47,8 @@ def init():
         ''')
         import sharing
         sharing.init(db)
+        import review_learning
+        review_learning.init(db)
     DB.chmod(0o600)
 
 
@@ -81,17 +83,25 @@ def review_progress(db, records, stamp=None):
     items = []
     for item in records:
         closed = (item.get("execution") or {}).get("closed_ms")
-        reflection = str(item.get("reflection") or "").strip()
-        reflected_at = item["updated"] if reflection else None
-        if reflection:
-            for revision in db.execute("SELECT time,data FROM revisions WHERE journal_id=? ORDER BY id DESC", (item["id"],)):
-                if str(json.loads(revision["data"]).get("reflection") or "").strip() != reflection:
+        import review_learning
+        texts = review_learning.content(item)
+        versions = [json.loads(row['data']) | {'_time': row['time']} for row in
+                    db.execute('SELECT time,data FROM revisions WHERE journal_id=? ORDER BY id DESC', (item['id'],))] if any(texts) else []
+        written = []
+        for key, text in zip(review_learning.TEXT_FIELDS, texts):
+            if not text:
+                continue
+            changed_at = item['updated']
+            for revision in versions:
+                if str(revision.get(key) or '').strip() != text:
                     break
-                reflected_at = revision["time"]
+                changed_at = revision['_time']
+            written.append(changed_at)
+        reflected_at = max(written) if written else None
         report = db.execute("SELECT created FROM analyses WHERE journal_id=? AND status='complete' AND created>=? ORDER BY created DESC LIMIT 1",
                             (item["id"], closed)).fetchone() if closed else None
         status = {"eligible": bool(closed and start <= closed <= stamp),
-                  "personal_complete": bool(closed and reflection and reflected_at >= closed),
+                  "personal_complete": bool(closed and reflected_at is not None and closed <= reflected_at <= stamp),
                   "personal_at": reflected_at, "ai_complete": bool(report),
                   "ai_at": report["created"] if report else None, "closed_at": closed}
         item["review_status"] = status
@@ -136,6 +146,8 @@ def save_journal(payload):
         data = dict(previous)
         for key in TEXT:
             data[key] = str(payload.get(key, previous.get(key, "")))[:8000]
+        import review_learning
+        data.update(review_learning.fields(payload, previous))
         exchange = str(payload.get("exchange", previous.get("exchange", "binance"))).lower()
         if exchange not in {"binance", "variational", "okx", "bybit"}:
             raise ValueError("交易所不支持。")
@@ -258,6 +270,8 @@ def state():
             trade["order_key"] = str(trade.get("orderId", "fill:" + str(trade["id"])))
         journals = all_journals(db)
         reviews = review_progress(db, journals)
+        import review_learning
+        learning = review_learning.summary(db, journals, now_ms())
         for j in journals:
             j["risk"] = risk_math(j)
             j["capture_count"] = db.execute("SELECT COUNT(*) FROM position_snapshots WHERE journal_id=?", (j["id"],)).fetchone()[0]
@@ -273,4 +287,4 @@ def state():
                 "orders": group_orders(trades), "trade_context": kv("trade_context", {}, db),
                 "recorder": kv("recorder_status", {}), "recorder_settings": kv("recorder_settings", {"enabled":True,"interval":15,"auto_ai":True}),
                 "totals": totals, "curve": curve, "analytics": build_analytics(income, trades, coverage),
-                "analyses": analyses, "review_progress": reviews, "server_time": now_ms()}
+                "analyses": analyses, "review_progress": reviews, "review_learning": learning, "server_time": now_ms()}
