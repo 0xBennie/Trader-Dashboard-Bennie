@@ -43,3 +43,24 @@ test('missing credentials is setup required, never a connection outage or a heal
  const bar=require('../static/recorder.js').bar(s);
  assert.match(bar,/尚未连接/);assert.match(bar,/data-action="settings"/);assert.doesNotMatch(bar,/重试|连接中断/);
 });
+
+test('unconnected providers use compact entries while paused and historical accounts keep their evidence',()=>{
+ const s=state();s.exchanges={okx:{configured:false},bybit:{configured:false}};
+ let html=d.accountCoverage(s,now);
+ assert.match(html,/连接 OKX 账户/);assert.match(html,/连接 Bybit 账户/);
+ assert.doesNotMatch(html,/连接 USDT 永续账户/);
+ s.exchanges.okx={configured:true,enabled:false,snapshot:{captured_at:now,positions:[],coverage:{days:7}},sync:{status:'complete'}};
+ html=d.accountCoverage(s,now);
+ assert.match(html,/已暂停/);assert.match(html,/上次快照空仓/);
+ assert.match(html,/data-exchange-filter="okx"/);assert.doesNotMatch(html,/aria-label="连接 OKX 账户"/);
+ s.exchanges.okx.configured=false;
+ assert.match(d.accountCoverage(s,now),/上次快照空仓/);
+});
+
+test('evidence problems and unfinished reviews precede optional AI setup without losing journal destinations',()=>{
+ const s=state();s.recorder.status='stopped';s.journals=[{id:'closed-1',symbol:'ETHUSDT',execution:{closed_ms:now-1000}}];
+ const html=d.nextActions(s,now);
+ assert.ok(html.indexOf('核对自动记录')<html.indexOf('待本人复盘'));
+ assert.ok(html.indexOf('待本人复盘')<html.indexOf('配置 AI 服务'));
+ assert.match(html,/data-open-journal="closed-1"/);assert.match(html,/data-focus-field="reflection"/);
+});

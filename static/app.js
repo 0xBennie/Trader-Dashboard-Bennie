@@ -284,7 +284,7 @@ document.addEventListener('click', async event=>{
     if(action==='view-report'){if(!await saveNotes(true))return;view='review';reportId=null;render();}
     if(action==='image'){$('#full-image').src=button.dataset.image||chosen().image;$('#image-dialog').showModal();}
     if(action==='close-image')$('#image-dialog').close();
-    if(action==='settings'||action==='ai-settings')openAISettings();
+    if(action==='settings'||action==='ai-settings'){openAISettings();const exchange=button.dataset.connectExchange;if(['okx','bybit'].includes(exchange)){const section=$('#connect-'+exchange);section.open=true;section.scrollIntoView({block:'start'});section.querySelector('input')?.focus({preventScroll:true});}}
     if(action==='ai-check'){
       const payload=JournalAISettings.payload($('#ai-settings-form'));JournalAISettings.busy(true);$('#ai-setting-status').textContent='正在读取模型列表，不调用生成…';
       try{JournalAISettings.modelResult(await api('/api/ai/models',payload));}

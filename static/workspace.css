@@ -1,0 +1,194 @@
+/* Shared workspace finish: clear surfaces, compact navigation, risk before setup. */
+:root {
+  --bg: #f7f8fa;
+  --line: #e5e8ed;
+  --ink: #20242c;
+  --muted: #68717d;
+  --surface: #fff;
+  --surface-radius: 14px;
+}
+body { background: var(--bg); -webkit-font-smoothing: antialiased; }
+.sidebar { background: #fcfcfd; }
+.brandmark { border-radius: 9px; }
+.sidebar nav { margin-top: 36px; }
+.sidebar nav .nav-item { position: relative; border-radius: 9px; }
+.sidebar nav .nav-item.active { background: #edf2ff; color: #274fbf; }
+.sidebar nav .nav-item.active::before {
+  content: ''; position: absolute; left: -16px; top: 12px; bottom: 12px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--blue);
+}
+.nav-count { border-radius: 5px; font-variant-numeric: tabular-nums; }
+.topbar { background: #ffffff80; }
+.page-heading h1 { font-size: 30px; letter-spacing: -.8px; }
+.page-heading p { display: block; font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.button { border-radius: 8px; }
+.button:disabled { cursor: not-allowed; }
+.button.quiet:hover { background: #f0f3f8; }
+.button.primary:hover { background: #284bc3; }
+.panel, .training-card, .review-worklist, .share-settings, .share-links {
+  border-radius: var(--surface-radius);
+}
+input:not([type=checkbox]), select, textarea { border-radius: 8px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+  border-color: var(--blue); box-shadow: 0 0 0 5px #3159d90b;
+}
+.section-navigation { gap: 6px; border: 0; margin-bottom: 24px; }
+.section-navigation .button {
+  min-height: 38px; padding: 9px 14px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent;
+}
+.section-navigation .button.selected {
+  background: #fff; border-color: var(--line); box-shadow: 0 1px 2px #1c243308;
+}
+.section-navigation .selected::after { display: none; }
+
+/* Metrics use real values; the third card tracks personal reflection only. */
+.dashboard-kpis.compact-kpis {
+  grid-template-columns: 1.15fr 1fr 1fr; gap: 16px;
+  padding: 0; border: 0; background: none; margin-bottom: 20px;
+}
+.compact-kpis > button, .compact-kpis > button:last-child {
+  display: flex; flex-direction: column; align-items: stretch; min-width: 0;
+  padding: 22px 24px; border: 1px solid var(--line); border-radius: var(--surface-radius);
+  background: var(--surface); text-align: left; position: relative;
+}
+.compact-kpis > .kpi-net { background: #f0f4ff; border-color: #dde5f8; }
+.compact-kpis > button:hover { border-color: #b5c4e3; background: #f9fbff; }
+.compact-kpis .kpi-label { display: flex; align-items: center; min-width: 0; gap: 5px; }
+.compact-kpis .kpi-label svg { margin-left: auto; color: #7a879b; flex-shrink: 0; }
+.compact-kpis strong { font-size: clamp(28px, 2.7vw, 38px); font-weight: 600; margin: 15px 0 8px; font-variant-numeric: tabular-nums; }
+.compact-kpis small { font-size: 12px; line-height: 1.7; }
+.compact-kpis .kpi-review-track { height: 4px; background: #e9edf5; border-radius: 8px; margin-top: 13px; overflow: hidden; }
+.compact-kpis .kpi-review-track > span { display: block; height: 100%; background: #6380d9; border-radius: inherit; }
+
+/* Risk and next actions stay above account onboarding. DOM order matches reading order. */
+.dashboard-focus, .dashboard-workspace { display: grid; grid-template-columns: 1.15fr 1fr; gap: 20px; align-items: start; }
+.dashboard-workspace { margin-top: 20px; }
+.account-section, .dashboard-actions, .dashboard-recent, .dashboard-accounts {
+  min-width: 0; background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--surface-radius); padding: 22px 24px;
+}
+.account-section { padding: 0; }
+.dashboard-section-head { min-height: 30px; margin-bottom: 16px; }
+.dashboard-section-head h3 { font-size: 15px; font-weight: 650; }
+.dashboard-section-head .button { min-height: 32px; padding: 5px 8px; border-color: transparent; }
+.risk-heading { display: flex; align-items: center; gap: 9px; color: #53627b; }
+.risk-heading h3 { color: var(--ink); }
+.stop-coverage { padding: 22px 24px; border-top: 1px solid var(--line); }
+.stop-coverage:first-child { border-top: 0; }
+.stop-coverage .dashboard-section-head { flex-wrap: wrap; gap: 8px; }
+.coverage-empty { display: flex; gap: 16px; align-items: center; min-height: 116px; padding: 20px 0; }
+.coverage-empty-icon {
+  width: 52px; height: 52px; border: 1px solid #e5e9f0; background: #f7f9fc;
+  display: grid; place-items: center; border-radius: 15px; color: #73839b; flex-shrink: 0;
+}
+.coverage-empty-icon svg { width: 26px; height: 26px; }
+.coverage-empty b { font-size: 16px; font-weight: 600; }
+.coverage-empty.unverified .coverage-empty-icon { background: #fff8ea; color: #976c24; border-color: #f0e5cc; }
+.stop-coverage .coverage-empty .dashboard-empty { padding: 0; font-size: 13px; line-height: 1.8; margin-top: 7px; }
+.coverage-method, .coverage-method:not([open]) { position: static; margin: 0; padding-top: 12px; border-top: 1px solid #edf0f4; }
+.coverage-method summary { min-height: 28px; line-height: 28px; }
+.coverage-counts { gap: 8px; flex-wrap: wrap; }
+.coverage-counts span { padding: 7px 10px; border-radius: 6px; }
+.coverage-row { padding: 18px 0; }
+.coverage-row-actions { flex-shrink: 0; }
+.coverage-row p, .coverage-row small { line-height: 1.8; }
+.dashboard-actions .dashboard-section-head { margin-bottom: 8px; }
+.dashboard-actions h3 small { display: inline-block; background: #f0f2f6; border-radius: 5px; padding: 2px 6px; }
+.dashboard-action { min-height: 84px; gap: 12px; padding: 16px 0; }
+.dashboard-action:first-child { border-top: 0; }
+.dashboard-action .action-icon { display: grid; place-items: center; width: 34px; height: 34px; background: #f3f5fa; color: #657692; border-radius: 9px; flex-shrink: 0; }
+.dashboard-action.attention .action-icon { color: #996b24; background: #fff7e7; }
+.dashboard-action .action-copy { flex: 1; min-width: 0; }
+.dashboard-action b { line-height: 1.6; }
+.dashboard-action em { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.dashboard-action em i { font-style: normal; display: inline; }
+.dashboard-action:hover { border-radius: 6px; background: #f8faff!important; }
+.dashboard-trade { min-height: 90px; }
+.dashboard-trade:last-child { padding-bottom: 0; }
+.dashboard-trade-result b { font-size: 16px; }
+.dashboard-trade-result small { font-size: 11px; }
+
+/* Connected accounts retain their evidence; unused providers use compact entry points. */
+.account-coverage { display: block; }
+.account-card { padding: 17px 0; }
+.account-card + .account-card { border-left: 0; border-top: 1px solid #edf0f4; }
+.account-card:first-child { padding-top: 0; }
+.account-card-heading > b { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.account-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; background: #f1f3f6; border: 1px solid #e7eaf0; border-radius: 8px; font: 600 11px ui-monospace,monospace; color: #4a5566; }
+.account-card h3 { font-size: 16px; letter-spacing: -.2px; margin: 12px 0 6px; }
+.account-card p { font-size: 12px; }
+.account-card .button { min-height: 32px; }
+.account-connect-strip { border-top: 1px solid var(--line); margin-top: 2px; padding-top: 16px; display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.account-connect-strip > span { font-size: 12px; color: var(--muted); }
+.account-connect-strip > div { display: flex; gap: 8px; }
+.account-connect-strip .button { background: #fff; }
+.pretrade-entry { padding: 22px 24px; background: #f0f3f9; border: 1px solid #e4e9f2; border-radius: var(--surface-radius); margin-top: 20px; }
+.review-worklist progress { height: 6px; }
+.review-task { padding: 20px 0; }
+.note-section summary { border-radius: 6px; }
+.note-section summary:hover { background: #f8faff; }
+.exchange-connect { scroll-margin-top: 88px; }
+.share-settings { border-color: var(--line); }
+.share-preview-status { margin-bottom: 16px; }
+.share-canvas-wrap { box-shadow: 0 10px 32px #22304409; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .button, .nav-item, .dashboard-action, .dashboard-trade, .review-task,
+  .compact-kpis > button, input, select, textarea, .note-section summary {
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
+  }
+  .button:active:not(:disabled) { transform: translateY(1px); }
+}
+@media (max-width: 1150px) and (min-width: 781px) {
+  .compact-kpis > button, .compact-kpis > button:last-child { padding: 20px; }
+  .dashboard-focus { grid-template-columns: 1fr 1fr; }
+  .dashboard-workspace { grid-template-columns: 1fr; }
+  .coverage-row { flex-direction: column; align-items: stretch; }
+  .coverage-row-actions { flex-direction: row; justify-content: space-between; }
+}
+@media (max-width: 780px) {
+  .sidebar { background: #fff; }
+  .sidebar nav { margin-top: 0; }
+  .sidebar nav .nav-item.active::before { display: none; }
+  .sidebar nav .nav-item.active { background: #edf2ff; }
+  .page-heading h1 { font-size: 27px; }
+  .page-heading { display: flex; gap: 14px; }
+  .page-heading p { font-size: 13px; line-height: 1.7; }
+  .page-actions .button, .page-actions .button.quiet { min-height: 42px; }
+  .section-navigation { margin-bottom: 20px; gap: 6px; }
+  .section-navigation .button { min-height: 42px; padding: 10px 13px; }
+  .dashboard-kpis.compact-kpis { gap: 10px; grid-template-columns: 1fr 1fr; padding: 0; margin-bottom: 16px; }
+  .compact-kpis > button, .compact-kpis > button:nth-child(2) { padding: 17px 16px; border: 1px solid var(--line); min-height: 158px; }
+  .compact-kpis > .kpi-net { border-color: #dde5f8; }
+  .compact-kpis .kpi-label { flex-wrap: wrap; gap: 3px; font-size: 12px; }
+  .compact-kpis .kpi-label svg { width: 16px; height: 16px; }
+  .compact-kpis .kpi-label i { font-size: 9px; margin-left: 2px; }
+  .compact-kpis strong { font-size: 28px; letter-spacing: -.8px; margin: 10px 0 6px; overflow-wrap: anywhere; }
+  .compact-kpis small { font-size: 11px; }
+  .compact-kpis > button:last-child { display: grid; grid-template-columns: 1fr auto; grid-column: 1/-1; gap: 6px 12px; padding: 16px; min-height: 0; margin: 0; }
+  .compact-kpis > button:last-child strong { grid-row: 1/3; grid-column: 2; font-size: 26px; margin: 0; }
+  .compact-kpis .kpi-review-track { grid-column: 1/-1; margin-top: 6px; }
+  .compact-kpis .kpi-review .kpi-label svg { display: none; }
+  .dashboard-focus, .dashboard-workspace { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .dashboard-workspace { margin-top: 16px; }
+  .dashboard-actions, .dashboard-recent, .dashboard-accounts { padding: 20px 18px; margin: 0; }
+  .stop-coverage { padding: 20px 18px; }
+  .coverage-empty { min-height: 108px; gap: 12px; padding: 16px 0; }
+  .coverage-empty-icon { width: 44px; height: 44px; border-radius: 12px; }
+  .coverage-empty b { font-size: 15px; }
+  .coverage-method summary { min-height: 40px; line-height: 40px; }
+  .coverage-method:not([open]) { position: static; }
+  .dashboard-action { gap: 10px; }
+  .dashboard-action .action-icon { width: 30px; height: 30px; }
+  .dashboard-action em { min-width: 0; max-width: 4em; white-space: normal; line-height: 1.7; }
+  .dashboard-action em > i { display: none; }
+  .dashboard-trade-result b { font-size: 15px; }
+  .dashboard-section-head .button, .account-card .button, .account-connect-strip .button { min-height: 44px; }
+  .pretrade-entry { padding: 20px 18px; margin-top: 16px; }
+  .pretrade-entry .button { min-height: 44px; }
+  .notes-panel, .journal-evidence { border-radius: var(--surface-radius); }
+  .note-save-bar { flex-wrap: nowrap; justify-content: flex-start; }
+  .note-save-bar > span { flex: 0 0 auto; max-width: none; }
+}
