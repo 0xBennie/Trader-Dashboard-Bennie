@@ -2,7 +2,8 @@
   'use strict';
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num=value=>value===null||value===undefined||value===''?null:Number.isFinite(Number(value))?Number(value):null;
-  const money=value=>num(value)===null?'—':Number(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const decimals=typeof module!=='undefined'?require('./money.js'):root.JournalMoney;
+  const money=value=>decimals.format(value);
   const signed=value=>num(value)===null?'—':(Number(value)>0?'+':'')+money(value);
   const tone=value=>num(value)===null?'':Number(value)>0?'positive':Number(value)<0?'negative':'';
   const stamp=value=>value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Hong_Kong',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(value)):'尚无快照';
@@ -25,7 +26,7 @@
     const due=recent.filter(j=>j.review_status?!j.review_status.personal_complete:!j.reflection?.trim());
     const pnl=positions.reduce((sum,p)=>num(p.unRealizedProfit)===null?NaN:sum+Number(p.unRealizedProfit),0);
     return {known,fresh,positions,status,closed,recent,due,pnl:known&&Number.isFinite(pnl)?pnl:null,
-      net:snapshot.coverage?.complete?num(state?.totals?.USDT?.net):null,days:snapshot.coverage?.days};
+      net:snapshot.coverage?.complete?(state?.totals?.USDT?.net??null):null,days:snapshot.coverage?.days};
   }
   function cycle(j){
     const e=j.execution||{},r=j.trade_receipt||{},realized=num(e.realized_pnl),fee=num(e.fees?.USDT??0);
@@ -64,7 +65,7 @@
     const fresh=a.configured&&a.enabled&&a.sync?.status==='complete'&&now-(snapshot.captured_at||0)<=90000;
     const total=a.totals?.USDT,pnl=snapshot.captured_at?positions.reduce((sum,p)=>sum+Number(p.unRealizedProfit),0):null;
     const status=!a.configured?'未连接':!a.enabled?'已暂停':a.sync?.status==='running'?'正在同步':a.sync?.status==='retrying'?'同步失败 · 自动重试':a.sync?.status==='partial'?'部分数据待核对':fresh?'自动记录中':snapshot.captured_at?'快照已过期':'等待首次同步';
-    return `<article class="account-card ${fresh?'verified':'pending'}"><div class="account-card-heading"><b>${accountMark(name)}${name}</b><span class="coverage-badge ${fresh?'full':'unknown'}">${status}</span></div><h3>${snapshot.captured_at?(positions.length?positions.length+' 个持仓':fresh?'当前空仓':'上次快照空仓'):'连接 USDT 永续账户'}</h3>${snapshot.captured_at?`<div class="exchange-account-values"><span>窗口已实现净额 · USDT<strong class="${tone(total?.net)}">${signed(total?.net??0)}</strong></span><span>${fresh?'持仓':'上次快照'}浮盈亏 · USDT<strong class="${tone(pnl)}">${signed(pnl)}</strong></span></div><p>${stamp(snapshot.captured_at)} 快照 · 近 ${snapshot.coverage?.days||'—'} 天账单</p><p>${esc(snapshot.wallet?.scope||'USDT 权益')}：${money(snapshot.wallet?.equity)} USDT</p>`:`<p>${name==='OKX'?'填写 API Key、Secret 和 Passphrase。':'填写统一账户（UTA）的 API Key 和 Secret。'}接入后自动记录成交和持仓。</p>`}${a.sync?.error?`<p class="negative">${esc(a.sync.error)}</p>`:''}<div class="account-links"><button class="button small" data-action="${a.configured?'dashboard-journal':'settings'}" ${a.configured?`data-exchange-filter="${exchange}"`:''}>${a.configured?'查看交易':'连接账户'}</button>${a.configured?`<button class="button small secondary-link" data-action="exchange-sync" data-exchange="${exchange}" ${a.sync?.status==='running'?'disabled':''}>立即同步</button>`:''}</div></article>`;
+    return `<article class="account-card ${fresh?'verified':'pending'}"><div class="account-card-heading"><b>${accountMark(name)}${name}</b><span class="coverage-badge ${fresh?'full':'unknown'}">${status}</span></div><h3>${snapshot.captured_at?(positions.length?positions.length+' 个持仓':fresh?'当前空仓':'上次快照空仓'):'连接 USDT 永续账户'}</h3>${snapshot.captured_at?`<div class="exchange-account-values"><span>窗口已实现净额 · USDT<strong class="${tone(total?.net)}">${signed(total?.net??null)}</strong></span><span>${fresh?'持仓':'上次快照'}浮盈亏 · USDT<strong class="${tone(pnl)}">${signed(pnl)}</strong></span></div><p>${stamp(snapshot.captured_at)} 快照 · ${a.ledger_coverage?.complete?'账单 '+stamp(a.ledger_coverage.start)+' — '+stamp(a.ledger_coverage.end):'账单时段待核对'}</p><p>${esc(snapshot.wallet?.scope||'USDT 权益')}：${money(snapshot.wallet?.equity)} USDT</p>`:`<p>${name==='OKX'?'填写 API Key、Secret 和 Passphrase。':'填写统一账户（UTA）的 API Key 和 Secret。'}接入后自动记录成交和持仓。</p>`}${a.sync?.error?`<p class="negative">${esc(a.sync.error)}</p>`:''}<div class="account-links"><button class="button small" data-action="${a.configured?'dashboard-journal':'settings'}" ${a.configured?`data-exchange-filter="${exchange}"`:''}>${a.configured?'查看交易':'连接账户'}</button>${a.configured?`<button class="button small secondary-link" data-action="exchange-sync" data-exchange="${exchange}" ${a.sync?.status==='running'?'disabled':''}>立即同步</button>`:''}</div></article>`;
   }
   function apiStops(state,now){
     return Object.entries(state.exchanges||{}).filter(([,a])=>a.configured||a.snapshot?.captured_at).map(([exchange,a])=>{
@@ -79,11 +80,13 @@
   }
   function overview(state,now=Date.now()){
     if(!state)return '<section class="dashboard-overview" aria-busy="true">正在读取账户概览…</section>';
-    const m=model(state,now),latest=m.closed.slice(0,3);
+    const m=model(state,now),latest=m.closed.slice(0,3),portfolio=state.portfolio;
+    const net=portfolio?(portfolio.available?portfolio.totals.USDT.net:null):m.net;
+    const netScope=portfolio?(portfolio.available?portfolio.accounts.map(a=>a.name).join(' + ')+' · '+stamp(portfolio.window.start)+' — '+stamp(portfolio.window.end):'账单范围待核对 · 点击查看'):`Binance · ${m.days?'近 '+esc(m.days)+' 天':'已同步期间'} · 已扣手续费与资金费`;
     const total=state.review_progress?.personal.denominator??m.recent.length;
     return `<div class="dashboard-overview">
       <section class="dashboard-kpis compact-kpis" aria-label="账户与复盘摘要">
-        <button class="kpi-net" data-action="dashboard-analytics"><span class="kpi-label">已实现净额 <i>USDT</i>${icon('trend')}</span><strong class="${tone(m.net)}">${signed(m.net)}</strong><small>Binance · ${m.days?'近 '+esc(m.days)+' 天':'已同步期间'} · 已扣手续费与资金费</small></button>
+        <button class="kpi-net" data-action="dashboard-analytics"><span class="kpi-label">${portfolio?'合并已实现净额':'已实现净额'} <i>USDT</i>${icon('trend')}</span><strong class="${tone(net)}">${signed(net)}</strong><small>${esc(netScope)}</small></button>
         <button class="kpi-position" data-action="dashboard-journal" data-exchange-filter="binance"><span class="kpi-label">${m.fresh?'持仓':'上次快照'}浮盈亏 <i>USDT</i>${icon('wallet')}</span><strong class="${tone(m.pnl)}">${signed(m.pnl)}</strong><small>Binance · ${m.known?m.positions.length+' 个持仓':'仓位待读取'} · 不含 Variational</small></button>
         <button class="kpi-review" data-view="progress"><span class="kpi-label">交易回顾${icon('review')}</span><strong>${total}<i class="metric-denominator"> 笔</i></strong><small>近 30 天已确认平仓 · 点击回看</small></button>
       </section>

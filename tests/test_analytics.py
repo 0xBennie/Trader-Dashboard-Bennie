@@ -37,3 +37,11 @@ class AnalyticsTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class SimultaneousBills(unittest.TestCase):
+    def test_drawdown_ignores_arbitrary_account_order_at_same_timestamp(self):
+        rows=[dict(asset='USDT',incomeType='REALIZED_PNL',income=v,symbol='BTCUSDT',time=1000,tranId='1',exchange=x) for x,v in [('okx','10'),('bybit','-10')]]
+        for ordered in (rows,list(reversed(rows))):
+            r=build_analytics(ordered,[],dict(start=0,end=2000,complete=True))
+            self.assertEqual(r['summary']['max_ledger_drawdown'],'0')
+            self.assertEqual(r['summary']['net'],'0')

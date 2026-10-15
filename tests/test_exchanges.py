@@ -76,7 +76,7 @@ class ClientTests(unittest.TestCase):
         normalized=c.fills([f])[0]
         self.assertEqual((normalized["qty"],normalized["commission"],normalized["time"]),("2.0","0.2",1000))
         b=dict(instId=f["instId"],ccy="USDT",ts="1000",billId="1",type="2",pnl="5",fee="-0.2")
-        rows=c.income([b,dict(b,billId="2",type="8",subType="173",pnl="-0.4"),dict(b,billId="3",type="1",pnl="1000")])
+        rows=c.income([b,dict(b,billId="2",type="8",subType="173",pnl="-0.4",fee="0"),dict(b,billId="3",type="1",pnl="1000")])
         totals,_=journal.aggregate_income(rows)
         self.assertEqual(totals["USDT"]["net"],"4.4")
         f["fee"]="0.1";self.assertEqual(c.fills([f])[0]["commission"],"-0.1")
@@ -84,7 +84,7 @@ class ClientTests(unittest.TestCase):
     def test_bybit_join_hedge_gross_fees_funding_and_duplicate_bills(self):
         c=client("bybit")
         f=dict(symbol="XYZUSDT",execType="Trade",execId="exec1",orderId="order1",execTime="1000",execQty="2",execPrice="110",execFee="0.2",side="Buy",seq="100")
-        b=dict(id="bill1",type="TRADE",symbol="XYZUSDT",tradeId="exec1",currency="USDT",cashFlow="20",fee="0.2",funding="0",transactionTime="1000")
+        b=dict(id="bill1",type="TRADE",symbol="XYZUSDT",tradeId="exec1",currency="USDT",cashFlow="20",fee="0.2",funding="0",change="19.8",transactionTime="1000")
         order=dict(orderId="order1",positionIdx=2)
         result=c.fills([f],[b,b],[order])[0]
         self.assertEqual(result["positionSide"],"SHORT")
@@ -93,7 +93,7 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(result["sequence"],"100")
         for bills,orders in (([],[order]),([b],[])):
             with self.assertRaises(ExchangeError):c.fills([f],bills,orders)
-        income=c.income([b,dict(b,id="fund",type="SETTLEMENT",funding="-0.5"),dict(b,id="transfer",type="TRANSFER_IN",cashFlow="1000")])
+        income=c.income([b,dict(b,id="fund",type="SETTLEMENT",funding="-0.5",cashFlow="0",fee="0",change="-0.5"),dict(b,id="transfer",type="TRANSFER_IN",cashFlow="1000",fee="0",change="1000")])
         self.assertEqual(journal.aggregate_income(income)[0]["USDT"]["net"],"19.3")
         with self.assertRaises(ExchangeError):c.income([dict(b,currency="USDC")])
 

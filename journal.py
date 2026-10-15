@@ -1,4 +1,5 @@
 import json
+import ledger
 import sqlite3
 import time
 import uuid
@@ -32,6 +33,7 @@ def init():
         PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS trades (symbol TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(symbol,id));
+        CREATE TABLE IF NOT EXISTS ledger_coverage (exchange TEXT, start INTEGER, end INTEGER, PRIMARY KEY(exchange,start));
         CREATE TABLE IF NOT EXISTS income (type TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(type,id));
         CREATE TABLE IF NOT EXISTS exchange_trades (exchange TEXT, symbol TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(exchange,symbol,id));
         CREATE TABLE IF NOT EXISTS exchange_income (exchange TEXT, type TEXT, id TEXT, time INTEGER, raw TEXT, PRIMARY KEY(exchange,type,id));
@@ -213,17 +215,23 @@ def risk_math(j):
         return {"valid": False, "reason": "交易计划尚未填写完整。"}
 
 
+@ledger.exact
 def aggregate_income(income):
+    from ledger import classified, KINDS
+    try:
+        income = classified(income)
+    except ValueError:
+        return {}, []
     totals = {}
     curve = []
     running = Decimal(0)
     for row in sorted(income, key=lambda r: r["time"]):
         asset, kind = row["asset"], row["incomeType"]
-        if kind not in {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"}:
+        if kind not in KINDS:
             continue
         values = totals.setdefault(asset, {"realized": Decimal(0), "fees": Decimal(0), "funding": Decimal(0), "net": Decimal(0)})
         amount = Decimal(row["income"])
-        values[{"REALIZED_PNL": "realized", "COMMISSION": "fees", "FUNDING_FEE": "funding"}[kind]] += amount
+        values[KINDS[kind]] += amount
         values["net"] += amount
         if asset == "USDT":
             running += amount
@@ -258,11 +266,12 @@ def group_orders(trades):
     return sorted(results, key=lambda g: g["lastTime"], reverse=True)
 
 
-def state():
+def state(binance_configured=False):
     with connect() as db:
+        db.execute("BEGIN")
         sync = kv("sync", {}, db)
         snapshot = kv("snapshot", {}, db)
-        coverage = snapshot.get("coverage", {})
+        coverage = ledger.verified_coverage(db, "binance")
         start, end = coverage.get("start", 0), coverage.get("end", now_ms())
         income = [json.loads(r[0]) for r in db.execute("SELECT raw FROM income WHERE time>=? AND time<=? ORDER BY time", (start, end))]
         trades = [json.loads(r[0]) for r in db.execute("SELECT raw FROM trades WHERE time>=? AND time<=? ORDER BY time DESC", (start, end))]
@@ -280,11 +289,15 @@ def state():
             j["market_captures"] = [dict(id=r[0],captured=r[1],**json.loads(r[2])) for r in db.execute("SELECT id,captured,data FROM market_snapshots WHERE journal_id=? ORDER BY captured DESC LIMIT 12", (j["id"],))]
         analyses = [dict(id=r["id"], journal_id=r["journal_id"], created=r["created"], status=r["status"], **json.loads(r["data"]))
                     for r in db.execute("SELECT * FROM analyses ORDER BY created DESC LIMIT 50")]
-        totals, curve = aggregate_income(income)
+        totals, curve = aggregate_income(income) if coverage.get("complete") else ({}, [])
         from analytics import build_analytics
         from exchange_sync import states
-        return {"exchanges": states(db), "sync": sync, "snapshot": snapshot, "journals": journals, "trades": trades,
+        from portfolio import report
+        analytics = build_analytics(income, trades, coverage)
+        if analytics.get("available"):
+            totals.setdefault("USDT", {k:"0" for k in ("realized","fees","funding","net")})
+        return {"portfolio": report(db, binance_configured=binance_configured), "exchanges": states(db), "sync": sync, "snapshot": snapshot, "journals": journals, "trades": trades,
                 "orders": group_orders(trades), "trade_context": kv("trade_context", {}, db),
                 "recorder": kv("recorder_status", {}), "recorder_settings": kv("recorder_settings", {"enabled":True,"interval":15,"auto_ai":True}),
-                "totals": totals, "curve": curve, "analytics": build_analytics(income, trades, coverage),
+                "totals": totals, "curve": curve, "analytics": analytics, "ledger_coverage": coverage,
                 "analyses": analyses, "review_progress": reviews, "review_learning": learning, "server_time": now_ms()}

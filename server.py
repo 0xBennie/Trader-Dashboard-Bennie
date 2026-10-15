@@ -18,6 +18,8 @@ import trade_context
 import stop_coverage
 import recorder
 import exchange_sync
+import binance_account
+import ledger
 import training
 import pretrade_ai
 import pretrade_evidence
@@ -40,10 +42,12 @@ def sync_account(days=30):
             journal.set_kv(db, "sync", {"status": "running", "started": journal.now_ms()})
         client = Binance(*credentials(ROOT))
         end = client.align_time()
+        binance_account.bind(client)
         start = end - int(days) * 86400000
         positions = client.get("/fapi/v3/positionRisk", signed=True)
         positions = [p for p in positions if Decimal(p["positionAmt"]) != 0]
         income = client.income(start, end)
+        ledger.classified(income, allow_unknown=True)
         with journal.connect() as db:
             symbols = {j["symbol"] for j in journal.binance_journals(db)}
         symbols.update(p["symbol"] for p in positions)
@@ -61,12 +65,15 @@ def sync_account(days=30):
         contexts = trade_context.collect(client, context_symbols)
         snapshot = {"positions": positions, "captured_at": journal.now_ms(),
                     "coverage": {"start": start, "end": end, "days": days, "symbols": symbols,
-                                 "scope": "Binance USDⓈ-M；USDT 成交，全部账单币种分列", "complete": True}}
+                                 "scope": "Binance USDⓈ-M；USDT 成交，全部账单币种分列", "complete": True, "ledger_version": ledger.VERSION}}
         with journal.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("DELETE FROM income WHERE time BETWEEN ? AND ?", (start, end))
             for t in trades:
                 db.execute("INSERT OR REPLACE INTO trades VALUES(?,?,?,?)", (t["symbol"], str(t["id"]), t["time"], json.dumps(t)))
             for item in income:
                 db.execute("INSERT OR REPLACE INTO income VALUES(?,?,?,?)", (item["incomeType"], str(item["tranId"]), item["time"], json.dumps(item)))
+            ledger.record_coverage(db, "binance", start, end)
             journal.set_kv(db, "snapshot", snapshot)
             journal.set_kv(db, "trade_context", contexts)
             journal.set_kv(db, "sync", {"status": "complete", "completed": journal.now_ms(), "trades": len(trades), "income": len(income)})
@@ -155,11 +162,23 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_login(route.path):
                 return
             if route.path == "/api/state":
-                data = journal.state()
+                data = journal.state(binance_configured=all(credentials(ROOT)))
                 data["stop_coverage"] = stop_coverage.summarize(data, journal.now_ms())
                 session = self.session()
                 data.update(csrf=session['csrf'] if session else TOKEN, ai=ai_review.status(), credentials_configured=all(credentials(ROOT)),
                             auth={'enabled': bool(self.authentication and self.authentication.enabled), 'username': self.authentication.account['username'] if session else ''})
+                return self.send(200, data)
+            if route.path == "/api/portfolio":
+                import portfolio
+                params = parse_qs(route.query, keep_blank_values=True)
+                if set(params) - {"days", "exchanges"} or any(len(v) != 1 for v in params.values()):
+                    raise ValueError("合并账本查询参数不正确。")
+                days = int(params.get('days', ['30'])[0])
+                exchanges = params.get('exchanges', [None])[0]
+                with journal.connect() as db:
+                    db.execute('BEGIN')
+                    data = portfolio.report(db, days, exchanges.split(',') if exchanges is not None else None,
+                                            binance_configured=all(credentials(ROOT)))
                 return self.send(200, data)
             if route.path == '/api/review/learning':
                 query = parse_qs(route.query)
@@ -340,12 +359,7 @@ class Handler(BaseHTTPRequestHandler):
                 key, secret = str(payload.get("key", "")).strip(), str(payload.get("secret", "")).strip()
                 if not (16 <= len(key) <= 256 and 16 <= len(secret) <= 256 and key.isalnum() and secret.isalnum()):
                     raise ValueError("API Key 和 Secret 格式不正确。")
-                temp = ROOT/".env.local.tmp"
-                fd = os.open(temp, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as f:
-                    f.write(f"BINANCE_API_KEY={key}\nBINANCE_API_SECRET={secret}\n")
-                temp.chmod(0o600)
-                os.replace(temp, ROOT/".env.local")
+                binance_account.save(ROOT, key, secret, SYNC_LOCK)
                 return self.send(200, {"saved": True})
             return self.send(404, {"error": "接口不存在。"})
         except training.Conflict as e:

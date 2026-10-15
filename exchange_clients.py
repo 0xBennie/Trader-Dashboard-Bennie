@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from ledger import exact, amount
 from urllib import request, parse, error
 
 DAY = 86_400_000
@@ -32,7 +33,7 @@ class ExchangeError(ValueError):
 
 def decimal(value):
     try:
-        result = Decimal(str(value))
+        result = amount(value)
         if result.is_finite():
             return result
     except (InvalidOperation, ValueError, TypeError):
@@ -246,7 +247,7 @@ class Client:
         result = []
         bill_map = {}
         for bill in bills or []:
-            if bill.get("type") == "TRADE":
+            if bill.get("type") in {"TRADE", "LIQUIDATION", "ADL", "DELIVERY"}:
                 bill_map.setdefault((bill.get("symbol"), bill.get("tradeId")), []).append(bill)
         # Repeated pages may include the same bill; do not double-count cashFlow.
         bill_map = {k: list({b["id"]: b for b in v}.values()) for k, v in bill_map.items()}
@@ -279,30 +280,67 @@ class Client:
                                commission=str(fee), commissionAsset=asset, exchange=self.exchange, sequence=str(row.get("seq", fid if str(fid).isdigit() else "0"))))
         return result
 
+    @exact
     def income(self, rows):
-        result = []
+        result, seen = [], {}
         for row in rows:
             instrument = row.get("instId" if self.exchange == "okx" else "symbol", "")
-            if not instrument or not self.supported(instrument): continue
+            if instrument and not self.supported(instrument):
+                continue
             if self.exchange == "okx":
                 asset, stamp, ident = row["ccy"], row["ts"], row["billId"]
-                if row.get("type") in {"2", "5", "9"}:  # Trades, liquidations, ADL
-                    values = {"REALIZED_PNL": decimal(row["pnl"]), "COMMISSION": decimal(row["fee"])}
-                elif row.get("type") == "8" and row.get("subType") in {"173", "174"}:
-                    values = {"FUNDING_FEE": decimal(row["pnl"])}
-                else: continue  # No transfers, margin movements or deposits in trading P/L.
+                kind = str(row.get("type", ""))
+                pnl, fee = decimal(row.get("pnl") or "0"), decimal(row.get("fee") or "0")
+                change = decimal(row["balChg"]) if row.get("balChg") not in (None, "") else pnl + fee
+                if kind in {"2", "3", "5", "9"} and instrument:
+                    # Trades, delivery/delisting, liquidation and ADL: keep all components.
+                    if row.get("pnl") in (None, "") or row.get("fee") in (None, ""):
+                        raise ExchangeError("OKX 盈亏或费用字段缺失，本轮未提交。")
+                    values = {"REALIZED_PNL": pnl, "COMMISSION": fee}
+                elif kind == "8" and str(row.get("subType")) in {"173", "174"} and instrument:
+                    if row.get("pnl") in (None, ""):
+                        raise ExchangeError("OKX 资金费缺失，本轮未提交。")
+                    values = {"FUNDING_FEE": pnl, "COMMISSION": fee}
+                elif kind == "1":
+                    values = {"TRANSFER": change}
+                else:
+                    values = {"UNCLASSIFIED_OKX_" + kind: change}
+                # Cross-margin bills reconcile directly; isolated margin movement is not P/L.
+                if kind in {"2", "3", "5", "8", "9"} and row.get("mgnMode") == "cross" and row.get("balChg") not in (None, "") and sum(values.values()) != change:
+                    raise ExchangeError("OKX 账单余额变动与盈亏费用不一致，本轮未提交。")
             else:
                 asset, stamp, ident = row["currency"], row["transactionTime"], row["id"]
-                if row.get("type") == "TRADE":
-                    values = {"REALIZED_PNL": decimal(row["cashFlow"]), "COMMISSION": -decimal(row["fee"])}
-                elif row.get("type") == "SETTLEMENT":
-                    values = {"FUNDING_FEE": decimal(row["funding"])}
-                else: continue
-            if asset != "USDT":
+                kind = row.get("type", "")
+                cash, fee = decimal(row["cashFlow"]), decimal(row["fee"])
+                funding = decimal(row.get("funding") or "0")
+                change = decimal(row["change"])
+                if cash + funding - fee != change:
+                    raise ExchangeError("Bybit 账单变动不等于现金流加资金费减手续费，本轮未提交。")
+                if kind in {"TRADE", "SETTLEMENT", "LIQUIDATION", "ADL", "DELIVERY"} and instrument and not row.get("extraFees"):
+                    values = {"REALIZED_PNL": cash, "COMMISSION": -fee, "FUNDING_FEE": funding}
+                elif kind == "FEE_REFUND" and not funding and not row.get("extraFees"):
+                    values = {"COMMISSION_REBATE": change}
+                elif kind in {"TRANSFER_IN", "TRANSFER_OUT"}:
+                    values = {"TRANSFER": change}
+                elif kind in {"BONUS", "BONUS_RECOLLECT", "BONUS_TRANSFER_IN", "BONUS_TRANSFER_OUT"}:
+                    values = {"BONUS": change}
+                else:
+                    values = {"UNCLASSIFIED_BYBIT_" + str(kind): change}
+            if not isinstance(asset, str) or not asset or type(ident) not in (str, int) or not str(ident).strip():
+                raise ExchangeError("账单币种或编号缺失，本轮未提交。")
+            if asset != "USDT" and any(k in {"REALIZED_PNL", "FUNDING_FEE"} for k in values):
                 raise ExchangeError("USDT 永续账单存在其他结算币种，暂不合并收益，请核对账单。")
-            for kind, value in values.items():
-                result.append(dict(tranId=str(ident), incomeType=kind, income=str(value), asset=asset,
-                                   time=int(stamp), symbol=self.symbol(instrument), exchange=self.exchange))
+            for category, value in values.items():
+                normalized = dict(tranId=str(ident), incomeType=category, income=str(amount(value)), asset=asset,
+                                  time=int(stamp), symbol=self.symbol(instrument), exchange=self.exchange,
+                                  source_type=kind, unclassified=category.startswith("UNCLASSIFIED_"))
+                key = (category, str(ident))
+                if key in seen:
+                    if seen[key] != normalized:
+                        raise ExchangeError("同一账单编号存在冲突，本轮未提交。")
+                    continue
+                seen[key] = normalized
+                result.append(normalized)
         return result
 
     def orders(self, rows):
@@ -384,6 +422,6 @@ class Client:
             wallet = {"equity": coin.get("equity"), "asset": "USDT", "scope": "统一账户 USDT 币种权益（含其他产品）"}
         # Do not persist account-wide wallet blobs, API identity responses or auth headers.
         return {"positions": self.positions(positions), "orders": self.orders(orders),
-                "trades": self.fills(fills, bills, fill_orders), "income": self.income(bills),
+                "income": self.income(bills), "trades": self.fills(fills, bills, fill_orders),
                 "wallet": wallet, "instruments": self.instruments,
                 "raw": {"positions": positions, "orders": orders, "fills": fills, "bills": bills}}

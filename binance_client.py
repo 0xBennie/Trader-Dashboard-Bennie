@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 BASE = "https://fapi.binance.com"
-READ_PATHS = {"/fapi/v1/time", "/fapi/v3/positionRisk", "/fapi/v1/userTrades",
+READ_PATHS = {"/api/v3/account", "/fapi/v1/time", "/fapi/v3/positionRisk", "/fapi/v1/userTrades",
               "/fapi/v1/income", "/fapi/v1/klines", "/fapi/v1/openOrders",
               "/fapi/v1/openAlgoOrders", "/fapi/v1/commissionRate",
               "/fapi/v1/exchangeInfo", "/fapi/v1/premiumIndex", "/fapi/v3/account",
@@ -61,7 +61,8 @@ class Binance:
         query = urllib.parse.urlencode(params)
         if signed:
             query += "&signature=" + hmac.new(self.secret.encode(), query.encode(), hashlib.sha256).hexdigest()
-        req = urllib.request.Request(BASE + path + "?" + query, headers=headers, method="GET")
+        base = "https://api.binance.com" if path == "/api/v3/account" else BASE
+        req = urllib.request.Request(base + path + "?" + query, headers=headers, method="GET")
         try:
             with self.opener.open(req, timeout=25) as response:
                 return json.load(response)
@@ -79,6 +80,14 @@ class Binance:
             raise BinanceError(f"Binance {code}：{messages.get(code, '读取失败，请检查网络与账户 API 设置。')}") from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise BinanceError("无法连接 Binance，请检查本机网络。") from None
+
+    def identity(self):
+        # UID survives key rotation; retain only its one-way account binding.
+        data = self.get("/api/v3/account", {"omitZeroBalances": "true"}, True)
+        uid = data.get("uid") if isinstance(data, dict) else None
+        if type(uid) not in (str, int) or not str(uid).isdigit():
+            raise BinanceError("无法核对 Binance 账户 UID，已停止同步；请检查 API 读取权限。")
+        return hashlib.sha256(("binance:" + str(uid)).encode()).hexdigest()
 
     def align_time(self):
         before = int(time.time() * 1000)

@@ -7,6 +7,8 @@ from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 import journal
+import ledger
+import binance_account
 import trade_context
 from binance_client import Binance, BinanceError, credentials
 
@@ -227,7 +229,14 @@ class Recorder:
         if not self.sync_lock.acquire(blocking=False):
             return
         try:
-            self.client = self.client or Binance(*credentials(journal.ROOT))
+            current = credentials(journal.ROOT)
+            if self.client is None or (self.client.key, self.client.secret) != current:
+                candidate = Binance(*current)
+                candidate.align_time()
+                binance_account.bind(candidate)
+                self.client = candidate
+                self.signature = None
+                self.ledger_at = 0
             stamp = journal.now_ms()
             if stamp - self.aligned_at > 1800000:
                 self.client.align_time()
@@ -244,11 +253,16 @@ class Recorder:
                 with journal.connect() as db:
                     snapshot = journal.kv("snapshot", {}, db)
                     checkpoint = journal.kv("recorder_checkpoint", snapshot.get("coverage", {}).get("end"), db)
-                    days = snapshot.get("coverage", {}).get("days", 7)
-                    start = max(0, int(checkpoint) - 300000) if checkpoint else end - days * 86400000
+                    days = max(7, min(90, snapshot.get("coverage", {}).get("days", 30)))
+                    verified = ledger.ranges(db, "binance")
+                    # Re-read 7 days for delayed postings; first upgraded sync revalidates legacy coverage.
+                    start = min(int(checkpoint), end - 7*86400000) if checkpoint and verified else end - days*86400000
+                    if end-start > 90*86400000:
+                        raise BinanceError("离线超过 90 天，请手动同步并核对未覆盖的历史账单。")
                     known = {p["symbol"] for p in snapshot.get("positions", [])}
                     known.update(j["symbol"] for j in journal.binance_journals(db) if j.get("status") == "持仓中")
                 income = self.client.income(start, end)
+                ledger.classified(income, allow_unknown=True)
                 symbols = known | {p["symbol"] for p in positions} | {i["symbol"] for i in income if i.get("symbol", "").endswith("USDT")}
                 trades = []
                 for symbol in sorted(symbols):
@@ -258,6 +272,8 @@ class Recorder:
                 after = [p for p in after if D(p["positionAmt"]) and p["symbol"].endswith("USDT")]
                 after_signature = digest(sorted((position_key(p), p["positionAmt"], p["entryPrice"]) for p in after))
                 with journal.connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    db.execute("DELETE FROM income WHERE time BETWEEN ? AND ?", (start, end))
                     for t in trades:
                         db.execute("INSERT OR REPLACE INTO trades VALUES(?,?,?,?)", (t["symbol"],str(t["id"]),t["time"],encoded(t)))
                     for i in income:
@@ -271,8 +287,12 @@ class Recorder:
                     # Never move checkpoint past a mismatched batch; overlap also covers delayed income.
                     if not issues:
                         journal.set_kv(db, "recorder_checkpoint", end)
-                    coverage = snapshot.get("coverage", {"start":start,"days":days,"complete":True,"scope":"Binance USDⓈ-M"})
-                    coverage.update(start=end-days*86400000, end=end, symbols=sorted(set(coverage.get("symbols", [])) | symbols))
+                    # Ledger coverage follows actual completed reads, not a sliding assumed start.
+                    ledger.record_coverage(db, "binance", start, end)
+                    left, right = ledger.ranges(db, "binance")[-1]
+                    coverage = dict(snapshot.get("coverage", {}), start=left, end=right, days=days,
+                                    symbols=sorted(symbols), complete=True, ledger_version=ledger.VERSION,
+                                    scope="Binance USDⓈ-M；USDT 成交，全部账单币种分列")
                     snapshot.update(coverage=coverage)
                     journal.set_kv(db, "snapshot", snapshot)
                 positions = after

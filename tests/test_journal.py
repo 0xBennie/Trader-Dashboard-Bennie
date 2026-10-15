@@ -80,6 +80,7 @@ class LedgerTests(unittest.TestCase):
     def test_sync_idempotence_and_failure_preserves_snapshot(self):
         class Fake:
             def __init__(self,*args):pass
+            def identity(self):return "synthetic-account"
             def align_time(self):return 2000000000000
             def get(self,*args,**kwargs):return [{"symbol":"ETHUSDT","positionAmt":"1"}]
             def income(self,*args):return [{"symbol":"ETHUSDT","asset":"USDT","incomeType":"COMMISSION","tranId":1,"income":"-1","time":1999999999999}]

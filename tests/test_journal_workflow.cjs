@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('static/app.js','utf8').split('function tradesView()')[0];
 const journals=[{id:'a',symbol:'ETHUSDT',status:'持仓中',created:1},{id:'b',exchange:'variational',symbol:'DEMO',status:'持仓中',created:2},{id:'c',symbol:'TESTUSDT',status:'已平仓',created:3}];
-function run(code,overrides={}){const c=vm.createContext({JournalLearning:require('../static/learning.js'),fixture:{journals:journals.map(j=>({...j})),analyses:[],snapshot:{positions:[]}},window:{localStorage:{getItem:()=>null},fetch:()=>{}},JournalClient:{draftStore:()=>({read:()=>null}),createApi:()=>{}},...overrides});return vm.runInContext(source+';state=fixture;'+code,c);}
+function run(code,overrides={}){const c=vm.createContext({JournalMoney:require("../static/money.js"),JournalLearning:require('../static/learning.js'),fixture:{journals:journals.map(j=>({...j})),analyses:[],snapshot:{positions:[]}},window:{localStorage:{getItem:()=>null},fetch:()=>{}},JournalClient:{draftStore:()=>({read:()=>null}),createApi:()=>{}},...overrides});return vm.runInContext(source+';state=fixture;'+code,c);}
 test('exchange and status filters intersect; legacy records default to Binance',()=>{
  assert.equal(run('journalFilters={exchange:"binance",status:"持仓中"};filteredJournals().map(j=>j.id).join(",")'),'a');
  assert.equal(run('journalFilters={exchange:"variational",status:"已平仓"};filteredJournals().length'),0);

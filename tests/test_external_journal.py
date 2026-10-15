@@ -45,7 +45,8 @@ class ExternalJournalTests(unittest.TestCase):
 
     def test_sync_and_recorder_never_request_external_contract(self):
         self.create()
-        client = Mock(offset=0)
+        client = Mock(offset=0,key="test",secret="test")
+        client.identity.return_value = "synthetic-account"
         client.align_time.return_value = journal.now_ms()
         client.get.return_value = []
         client.income.return_value = []
@@ -56,7 +57,7 @@ class ExternalJournalTests(unittest.TestCase):
             self.assertTrue(all(c.args[0] != 'DEMO' for c in client.trades.call_args_list))
         r = recorder.Recorder(threading.Lock())
         r.client = client
-        with patch.object(recorder.trade_context, 'collect', return_value={}):
+        with patch.object(recorder.trade_context, 'collect', return_value={}), patch.object(recorder, 'credentials', return_value=('test','test')):
             r.poll()
         self.assertTrue(all(c.args[0] != 'DEMO' for c in client.trades.call_args_list))
 

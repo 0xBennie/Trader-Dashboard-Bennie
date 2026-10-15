@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 import journal
+import ledger
 
 HK = ZoneInfo('Asia/Hong_Kong')
 VENUES = {'binance': 'Binance', 'okx': 'OKX', 'bybit': 'Bybit', 'variational': 'Variational'}
@@ -30,6 +31,8 @@ def record_coverage(db, venue, snapshot):
     if not c.get('complete') or not isinstance(c.get('start'), int) or not isinstance(c.get('end'), int):
         return
     start, end = c['start'], c['end']
+    if c.get('ledger_version') == ledger.VERSION:
+        ledger.record_coverage(db, venue, start, end)
     if start < 0 or end < start:
         return
     rows = db.execute('SELECT start,end FROM share_coverage WHERE exchange=? AND end>=? AND start<=?',
@@ -135,6 +138,7 @@ def trade_detail(item, cfg):
     return result
 
 
+@ledger.exact
 def build_report(db, payload, stamp):
     cfg = config(payload, stamp)
     venue = cfg['exchange']
@@ -167,7 +171,7 @@ def build_report(db, payload, stamp):
     start = datetime(year, month, 1, tzinfo=HK)
     end = datetime(year + 1, 1, 1, tzinfo=HK) if cfg['mode'] == 'year' else start.replace(day=calendar.monthrange(year, month)[1]) + timedelta(days=1)
     start_ms, stop_ms = int(start.timestamp() * 1000), min(int(end.timestamp() * 1000) - 1, stamp)
-    ranges = [(max(start_ms, r[0]), min(stop_ms, r[1])) for r in db.execute('SELECT start,end FROM share_coverage WHERE exchange=? ORDER BY start', (venue,)) if r[1] >= start_ms and r[0] <= stop_ms]
+    ranges = [(max(start_ms, r[0]), min(stop_ms, r[1])) for r in db.execute('SELECT start,end FROM ledger_coverage WHERE exchange=? ORDER BY start', (venue,)) if r[1] >= start_ms and r[0] <= stop_ms]
     days = []
     for i in range((end - start).days):
         day = start + timedelta(days=i); lo = int(day.timestamp() * 1000); hi = lo + DAY - 1
@@ -181,8 +185,9 @@ def build_report(db, payload, stamp):
         income = [json.loads(r[0]) for r in db.execute('SELECT raw FROM income WHERE time BETWEEN ? AND ?', (start_ms, stop_ms))]
     elif venue in ('okx', 'bybit'):
         income = [json.loads(r[0]) for r in db.execute('SELECT raw FROM exchange_income WHERE exchange=? AND time BETWEEN ? AND ?', (venue, start_ms, stop_ms))]
+    income = ledger.classified([r for r in income if covered_time(r['time'])])
     for entry in income:
-        if entry.get('asset') != 'USDT' or entry.get('incomeType') not in ('REALIZED_PNL', 'COMMISSION', 'FUNDING_FEE') or not covered_time(entry['time']):
+        if entry.get('asset') != 'USDT' or not covered_time(entry['time']):
             continue
         value = decimal(entry['income'])
         if value is not None:

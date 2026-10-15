@@ -32,7 +32,7 @@ class SharingFixture:
 
     def cover(self, venue='binance', start='2026-10-01T00:00:00', end='2026-10-16T12:00:00'):
         with journal.connect() as db:
-            journal.set_kv(db, 'snapshot' if venue == 'binance' else f'exchange:{venue}:snapshot', {'coverage': {'start': ms(start), 'end': ms(end), 'complete': True}})
+            journal.set_kv(db, 'snapshot' if venue == 'binance' else f'exchange:{venue}:snapshot', {'coverage': {'start': ms(start), 'end': ms(end), 'complete': True, 'ledger_version': 2}})
 
     def ledger(self, value='12345.6789', venue='binance', when='2026-10-03T08:00:00', kind='REALIZED_PNL', asset='USDT', key='1'):
         raw = {'time': ms(when), 'income': value, 'asset': asset, 'incomeType': kind, 'symbol': 'SECRETUSDT', 'tranId': key}
@@ -93,6 +93,12 @@ class SharingTests(SharingFixture, unittest.TestCase):
         self.assertEqual(len(result['coverage']),2);self.assertEqual(result['net'],'0')
         self.cover(start='2026-10-04T00:00:00',end='2026-10-08T01:00:00')
         self.assertEqual(len(self.report()['coverage']),1)
+
+    def test_rebates_included_and_unknown_bill_blocks_new_report(self):
+        self.cover();self.ledger('10');self.ledger('-1',kind='COMMISSION');self.ledger('0.25',kind='COMMISSION_REBATE')
+        self.assertEqual(self.report(show_amounts=True)['net'],'9.25')
+        self.ledger('-3',kind='NEW_FEE')
+        with self.assertRaises(ValueError):self.report(show_amounts=True)
 
     def test_count_cycles_not_fills_and_exclude_incomplete(self):
         self.trade();self.trade(jid='duplicate',cycle='private-cycle')

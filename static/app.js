@@ -3,7 +3,7 @@ let state, view = 'training', selectedId = null, reportId = null, dirty = false,
 try{selectedId=window.localStorage.getItem('selected-journal')||selectedId;}catch{}
 const $ = selector => document.querySelector(selector);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const fmt = (value, digits = 2) => value === null || value === undefined || value === '' ? '—' : Number(value).toLocaleString('en-US', {minimumFractionDigits:digits, maximumFractionDigits:digits});
+const fmt = (value, digits = 2) => JournalMoney.format(value,digits);
 const signed = (value, digits = 2) => (Number(value) > 0 ? '+' : '') + fmt(value, digits);
 const precise = (value, minimum = 0) => { const [whole, fraction='']=String(value??'').split('.'); const decimals=fraction.replace(/0+$/,'').padEnd(minimum,'0'); return escapeHTML(whole.replace(/\B(?=(\d{3})+(?!\d))/g,','))+(decimals?'.'+escapeHTML(decimals):''); };
 const tone = value => Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : 'neutral';
@@ -17,11 +17,12 @@ const reports = () => state.analyses.filter(a => a.journal_id === chosen()?.id);
 const external = j => j?.exchange === 'variational';
 const exchangeName = j => ({binance:'Binance',okx:'OKX',bybit:'Bybit',variational:'Variational'}[j?.exchange||'binance']||'交易所');
 const journalAccount = j => !j?.exchange||j.exchange==='binance'?state:(state.exchanges?.[j.exchange]||{snapshot:{},trade_context:{}});
-let ledgerExchange='binance';
+let ledgerExchange='binance', analyticsExchange='all', portfolioDays=30, portfolioExchanges=null, portfolioCache=null, portfolioRequest=0;
 const ledgerAccount=()=>JournalExchanges.account(state,ledgerExchange);
 const ledgerPicker=()=>JournalExchanges.picker(ledgerExchange);
 const syncExchange=()=>{
-  if(['trades','analytics'].includes(view))return ledgerExchange;
+  if(view==='trades')return ledgerExchange;
+  if(view==='analytics')return analyticsExchange==='all'?'binance':analyticsExchange;
   const j=view==='journal'?(filteredJournals().find(j=>j.id===selectedId)||filteredJournals()[0]):chosen();
   return ['journal','review'].includes(view)&&['okx','bybit'].includes(j?.exchange)?j.exchange:'binance';
 };
@@ -59,12 +60,12 @@ function chrome() {
   const snapshot=state.snapshot, complete=verified(), sync=state.sync;
   if(!$('#recorder-status').contains(document.activeElement))$('#recorder-status').innerHTML=JournalRecorder.bar(state);
   if(snapshot.coverage?.days && shownDays!==snapshot.coverage.days){$('#sync-days').value=String(snapshot.coverage.days);shownDays=snapshot.coverage.days;}
-  const total=state.totals.USDT || {realized:'0',fees:'0',funding:'0',net:'0'};
+  const total=state.totals.USDT, ledgerComplete=Boolean(state.analytics?.available&&total);
   const positions=(snapshot.positions || []).filter(p=>p.marginAsset==='USDT' || p.symbol.endsWith('USDT'));
   const unrealized=positions.reduce((sum,p)=>sum+Number(p.unRealizedProfit),0);
-  $('#metrics').innerHTML=metric('Binance 已实现净额',complete?signed(total.net):'—',complete?`近 ${snapshot.coverage.days} 天 · 已扣手续费及资金费`:'同步后计算真实收益','USDT',complete?tone(total.net):'neutral')+
+  $('#metrics').innerHTML=metric('Binance 已实现净额',ledgerComplete?signed(total.net):'—',ledgerComplete?'已核对时段 · 含手续费及资金费':'账单完整核对后计算','USDT',ledgerComplete?tone(total.net):'neutral')+
     metric(JournalDashboard.model(state).fresh?'Binance 持仓浮盈亏':'Binance 上次快照浮盈亏',complete?signed(unrealized):'—',complete?`${positions.length} 个 USDT 持仓 · ${date(snapshot.captured_at)} 快照`:'等待 Binance 持仓数据','USDT',complete?tone(unrealized):'neutral')+
-    metric('成交订单',complete?state.orders.length:'—',complete?`${state.trades.length} 笔撮合明细 · ${snapshot.coverage.symbols.length} 个交易对`:'同一订单的多次撮合合并统计','单','','orders')+
+    metric('成交订单',complete?state.orders.length:'—',complete?`${state.trades.length} 笔撮合明细 · ${snapshot.coverage?.symbols?.length??0} 个交易对`:'同一订单的多次撮合合并统计','单','','orders')+
     metric('AI 报告',state.analyses.filter(a=>a.status==='complete').length,`${state.journals.length} 篇交易日志 · 保留历史版本`,'份');
   const targetExchange=syncExchange(), targetSync=targetExchange==='binance'?sync:state.exchanges?.[targetExchange]?.sync;
   const running=targetSync?.status==='running'; syncing=running;
@@ -84,6 +85,7 @@ function chrome() {
   else notice.hidden=true;
   document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal';
   document.body.dataset.view=view;
+  document.body.dataset.ledger=analyticsExchange;
   if(location.hash!=='#'+view)history.replaceState(null,'','#'+view);
   $('#section-navigation').innerHTML=JournalWorkflow.navigation(view);
   const labels={training:['总览','账户与风险','查看账户、持仓保护与数据同步情况。'],progress:['复盘','复盘','回看交易结果与执行过程，笔记按需补充。'],journal:['交易日志','持仓与日志','成交自动归档，仓位持续留档。想记录判断时，再留一句。'],trades:['成交明细','成交明细','成交、手续费与资金费分开记录，不把划转算成收益。'],review:['AI 报告','AI 报告','结合原始截图、交易计划与成交证据，审视每一次决策。'],analytics:['收益统计','收益统计','按交易所账单计算，只展示已有数据能支持的结论。'],share:['分享','分享工作台','把交易和复盘，留成一张自己的成绩单。']};
@@ -256,10 +258,24 @@ function reviewView() {
   return `<div class="review-layout"><aside class="panel review-picker"><label>选择交易日志<select id="review-journal">${state.journals.map(j=>`<option value="${escapeHTML(j.id)}" ${j.id===chosen().id?'selected':''}>${exchangeName(j)} · ${escapeHTML(j.title||j.symbol)}</option>`).join('')}</select></label>${JournalWorkflow.aiButton(state,chosen(),list,navigator.onLine)}<button class="button wide" data-action="dashboard-journal" data-open-journal="${escapeHTML(chosen()?.id||'')}" data-focus-field="reflection">${chosen()?.review_status?.personal_complete?'查看本人复盘':'写下本人复盘'} →</button><p class="helper">仅发送所选日志、对应交易对的持仓和最近最多 200 笔成交、原始截图。不会发送 API 密钥。</p>${list.length?'<div class="form-divider"></div><p class="helper">报告历史</p>':''}${list.map(a=>`<button class="history-item ${report?.id===a.id?'selected':''}" data-report="${a.id}">${escapeHTML(a.status==='complete'?a.title:a.status==='running'?'正在生成':'生成未完成')}<small>${date(a.created)} · ${a.status==='complete'?'已保存':a.status==='running'?'进行中':'可重试'}</small></button>`).join('')}</aside><section class="panel">${body}</section></div>`;
 }
 
-function analyticsView() { return ledgerPicker()+JournalAnalytics.render({...ledgerAccount(),exchange:ledgerExchange},analyticsDay,analyticsMonth); }
+function analyticsView() {
+  const picker=JournalExchanges.picker(analyticsExchange,true);
+  if(analyticsExchange!=='all')return picker+JournalAnalytics.render({...JournalExchanges.account(state,analyticsExchange),exchange:analyticsExchange},analyticsDay,analyticsMonth);
+  const p=portfolioCache||state.portfolio||{available:false};
+  return picker+JournalPortfolio.render(state,p,portfolioExchanges,portfolioDays)+(p.available?JournalAnalytics.render({analytics:p.analytics,totals:p.totals},analyticsDay,analyticsMonth):'');
+}
+async function loadPortfolio(){
+  const request=++portfolioRequest;
+  if(portfolioExchanges?.length===0){portfolioCache={available:false,issues:['至少选择一个账户。']};render();return;}
+  portfolioCache={loading:true};render();
+  try{const p=await api('/api/portfolio?days='+portfolioDays+(portfolioExchanges?'&exchanges='+encodeURIComponent(portfolioExchanges.join(',')):''));if(request!==portfolioRequest)return;portfolioCache=p;}
+  catch(error){if(request!==portfolioRequest)return;portfolioCache={available:false,issues:[error.message]};}
+  if(view==='analytics'&&analyticsExchange==='all')render();
+}
+
 
 function render() { if(renderedView)for(const name of expandablePanels){const panel=$('.'+name);if(panel)panelExpansion.set(renderedView+':'+name,panel.open);} const previous=$('#plan-form');if(previous){noteSections.set(previous.dataset.journalId,[...previous.querySelectorAll('[data-note-section][open]')].map(d=>d.dataset.noteSection));evidenceSections.set(previous.dataset.journalId,Boolean($('.journal-evidence')?.open));} if(state)chrome(); else document.body.dataset.section=JournalTraining.routes.includes(view)?'training':'journal'; $('#content').innerHTML=JournalTraining.routes.includes(view)?JournalTraining.render(view):({journal:journalView,trades:tradesView,review:reviewView,analytics:analyticsView,share:()=>JournalSharing.render(state)}[view])(); if(view==='share')JournalSharing.mount(); if(view==='trades')renderTrades(); for(const name of expandablePanels){const panel=$('.'+name),open=panelExpansion.get(view+':'+name);if(panel&&open!==undefined)panel.open=open;}renderedView=view; }
-async function refresh(renderBody=true) { state=await api('/api/state'); if(!state.journals.some(j=>j.id===selectedId))selectedId=state.journals[0]?.id; chrome(); if(renderBody&&!dirty)render(); }
+async function refresh(renderBody=true) { state=await api('/api/state'); if(portfolioDays===30&&portfolioExchanges===null)portfolioCache=null; if(!state.journals.some(j=>j.id===selectedId))selectedId=state.journals[0]?.id; chrome(); if(renderBody&&!dirty)render(); }
 function updateSaveButton() {
   const button=$('#plan-form [type="submit"]');if(!button)return;
   button.disabled=savingNotes||!dirty;
@@ -307,6 +323,8 @@ document.addEventListener('click', async event=>{
     if(action==='open-learning'){if(!await saveNotes(true))return;view='progress';render();JournalLearning.openTools();return;}
     if(action==='pin-review-action'){if(!await saveNotes(true))return;await api('/api/review/actions',{journal_id:chosen().id});await refresh();await JournalLearning.reload();toast('已加入首页提醒；下一笔结束后可以记录实践。');return;}
     if(!state&&['settings','ai-settings','recorder-settings'].includes(action)){toast('正在读取连接信息，请稍后再试。');return;}
+    if(action==='refresh-portfolio'){await loadPortfolio();return;}
+    if(action==='dashboard-analytics'){analyticsExchange='all';portfolioCache=null;portfolioDays=30;portfolioExchanges=null;}
     if(action==='dashboard-journal'||action==='dashboard-analytics'){if(!await saveNotes(true))return;if(button.dataset.exchangeFilter)journalFilters={exchange:button.dataset.exchangeFilter,status:'all'};if(button.dataset.openJournal){journalFilters={exchange:'all',status:'all'};selectedId=button.dataset.openJournal;try{localStorage.setItem('selected-journal',selectedId);}catch{}}view=action==='dashboard-journal'?'journal':'analytics';render();const focus=button.dataset.focusField;if(['thesis','reflection','invalidation','exit_plan','stop_loss'].includes(focus)){focusNoteField(focus);}else window.scrollTo(0,0);return;}
     if(action==='logout'){if(!await saveNotes(true))return;await api('/api/logout',{});dirty=false;document.body.hidden=true;location.replace('/login');return;}
     if(action==='orders'){if(!await saveNotes(true))return;view='trades';tradeMode='orders';orderFilter=null;render();window.scrollTo(0,0);}
@@ -362,7 +380,9 @@ document.addEventListener('keydown',event=>{
   if((event.metaKey||event.ctrlKey)&&event.key==='Enter'&&event.target.closest('#plan-form')){event.preventDefault();if(dirty&&!savingNotes)$('#plan-form').requestSubmit();}
 });
 document.addEventListener('change',async event=>{
-  if(event.target.id==='ledger-exchange'){ledgerExchange=event.target.value;orderFilter=null;render();return;}
+  if(event.target.id==='ledger-exchange'){if(view==='analytics')analyticsExchange=event.target.value;else ledgerExchange=event.target.value;orderFilter=null;render();return;}
+  if(event.target.id==='portfolio-days'){portfolioDays=Number(event.target.value);await loadPortfolio();return;}
+  if(event.target.dataset.portfolioExchange){portfolioExchanges=[...document.querySelectorAll('[data-portfolio-exchange]:checked')].map(el=>el.dataset.portfolioExchange);await loadPortfolio();return;}
   if(['journal-exchange','journal-status'].includes(event.target.id)){
     const key=event.target.id==='journal-exchange'?'exchange':'status',value=event.target.value;
     pickerFilters[key]=value;refreshJournalPicker();return;

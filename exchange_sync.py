@@ -6,6 +6,7 @@ import threading
 import time
 from decimal import Decimal
 import journal
+import ledger
 import recorder
 import stop_coverage
 from analytics import build_analytics
@@ -118,12 +119,22 @@ def collect(exchange, days=None):
         update_status(exchange, status="running", error=None, attempted_at=journal.now_ms())
         client = Client(exchange, item)
         client.align()
-        if client.identity() != item["identity"]: raise ExchangeError("账户身份与已绑定账本不匹配，已停止同步。")
+        identity = client.identity()
+        bound = journal.kv(key(exchange, "identity"))
+        if identity != item["identity"] or (bound and identity != bound):
+            raise ExchangeError("账户身份与已绑定账本不匹配，已停止同步。")
+        if not bound:
+            with journal.connect() as db:
+                journal.set_kv(db, key(exchange, "identity"), identity)
         previous = journal.kv(key(exchange, "snapshot"), {})
         end = int(time.time() * 1000) + client.offset
         # Overlap seven days to absorb delayed ledger postings and late order updates.
         start = end - (days or (7 if previous else 30)) * DAY
-        if previous and not days:
+        with journal.connect() as db:
+            verified = ledger.ranges(db, exchange)
+        if previous and not verified:
+            start = end - (days or 30) * DAY
+        if previous and not days and verified:
             start = min(start, previous["coverage"]["end"])
             if end - start > 90 * DAY:
                 raise ExchangeError("离线超过 90 天，无法保证自动补齐。请核对导出账单后手动选择同步范围。")
@@ -153,7 +164,7 @@ def commit(exchange, result, start, end, captured, previous=None):
     earliest = min(start, prior.get("start", start)) if continuous else start
     coverage = {"start": earliest, "end": end, "days": max(1, round((end - earliest) / DAY)),
                 "symbols": sorted({p["symbol"] for p in result["positions"]} | {t["symbol"] for t in result["trades"]}),
-                "scope": "USDT 永续", "complete": continuous, "note": "首次同步前的交易和离线期间的仓位快照不会回造。"}
+                "scope": "USDT 永续", "complete": continuous, "ledger_version": ledger.VERSION, "note": "首次同步前的交易和离线期间的仓位快照不会回造。"}
     snapshot = {"captured_at": captured, "positions": result["positions"], "coverage": coverage, "wallet": result["wallet"]}
     contexts = {symbol: {"status": "complete", "captured_at": captured,
                          "positions": [p for p in result["positions"] if p["symbol"] == symbol],
@@ -169,6 +180,7 @@ def commit(exchange, result, start, end, captured, previous=None):
             raise ExchangeError("Bybit 同一时刻存在无法排序的反向成交，暂不重建交易轮次，请核对导出成交。")
     with journal.connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM exchange_income WHERE exchange=? AND time BETWEEN ? AND ?", (exchange, start, end))
         for fill in result["trades"]:
             db.execute("INSERT OR REPLACE INTO exchange_trades VALUES(?,?,?,?,?)", (exchange, fill["symbol"], fill["id"], fill["time"], json.dumps(fill)))
         for bill in result["income"]:
@@ -178,6 +190,9 @@ def commit(exchange, result, start, end, captured, previous=None):
         recorder.capture_positions(db, result["positions"], contexts, captured, exchange=exchange)
         # Preserve original exchange evidence separately from the normalized ledger.
         journal.set_kv(db, key(exchange, "last_raw"), result.get("raw", {}))
+        ledger.record_coverage(db, exchange, start, end)
+        left, right = ledger.ranges(db, exchange)[-1]
+        snapshot["coverage"].update(start=left, end=right, complete=True)
         journal.set_kv(db, key(exchange, "snapshot"), snapshot)
         journal.set_kv(db, key(exchange, "contexts"), contexts)
         journal.set_kv(db, key(exchange, "instruments"), result["instruments"])
@@ -190,17 +205,20 @@ def states(db):
     result = {}
     for exchange in NAMES:
         snapshot = journal.kv(key(exchange, "snapshot"), {}, db)
-        coverage = snapshot.get("coverage", {})
+        coverage = ledger.verified_coverage(db, exchange)
         start, end = coverage.get("start", 0), coverage.get("end", journal.now_ms())
         fills = [json.loads(r[0]) for r in db.execute("SELECT raw FROM exchange_trades WHERE exchange=? AND time BETWEEN ? AND ? ORDER BY time DESC", (exchange, start, end))]
         income = [json.loads(r[0]) for r in db.execute("SELECT raw FROM exchange_income WHERE exchange=? AND time BETWEEN ? AND ? ORDER BY time", (exchange, start, end))]
         for fill in fills: fill["order_key"] = fill["orderId"]
-        totals, curve = journal.aggregate_income(income)
+        totals, curve = journal.aggregate_income(income) if coverage.get("complete") else ({}, [])
         status = journal.kv(key(exchange, "status"), {}, db)
+        analytics = build_analytics(income, fills, coverage)
+        if analytics.get("available"):
+            totals.setdefault("USDT", {k:"0" for k in ("realized","fees","funding","net")})
         result[exchange] = {**public_config(exchange), "snapshot": snapshot, "sync": status, "recorder": status,
             "trades": fills, "orders": journal.group_orders(fills), "totals": totals, "curve": curve,
             "trade_context": journal.kv(key(exchange, "contexts"), {}, db),
-            "analytics": build_analytics(income, fills, coverage)}
+            "analytics": analytics, "ledger_coverage": coverage}
         result[exchange]["stop_coverage"] = stop_coverage.summarize(result[exchange], journal.now_ms())
     return result
 

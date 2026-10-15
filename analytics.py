@@ -4,7 +4,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 HK = ZoneInfo("Asia/Hong_Kong")
-KINDS = {"REALIZED_PNL": "realized", "COMMISSION": "fees", "FUNDING_FEE": "funding"}
+from ledger import KINDS, classified, exact
 
 
 def date_key(stamp):
@@ -16,13 +16,19 @@ def bucket():
                 fills=0, orders=set(), entries=[])
 
 
+@exact
 def build_analytics(income, trades, coverage):
     if not coverage.get("complete"):
         return {"available": False}
+    try:
+        income = classified(income)
+    except ValueError as exc:
+        return {"available": False, "issues": [str(exc)]}
     start, end = int(coverage["start"]), int(coverage["end"])
     first, last = datetime.fromtimestamp(start / 1000, HK).date(), datetime.fromtimestamp(end / 1000, HK).date()
     daily = {(first + timedelta(days=i)).isoformat(): bucket() for i in range((last-first).days+1)}
     symbols, running, peak, drawdown = {}, Decimal(0), Decimal(0), Decimal(0)
+    changes = {}
     for row in sorted(income, key=lambda r: (r["time"], str(r.get("tranId", "")))):
         kind = KINDS.get(row["incomeType"])
         if row["asset"] != "USDT" or not kind or not start <= row["time"] <= end:
@@ -32,8 +38,11 @@ def build_analytics(income, trades, coverage):
         for group in (daily[date_key(row["time"])], symbols.setdefault(symbol, bucket())):
             group[kind] += value
             group["net"] += value
-            group["entries"].append({"time": row["time"], "symbol": symbol, "kind": kind, "amount": str(value)})
-        running += value
+            group["entries"].append({"time": row["time"], "symbol": symbol, "kind": kind, "amount": str(value), "exchange": row.get("exchange", "binance"), "id": str(row.get("tranId", ""))})
+        changes[row["time"]] = changes.get(row["time"], Decimal(0)) + value
+    # No arbitrary ordering between simultaneous bills across accounts.
+    for stamp in sorted(changes):
+        running += changes[stamp]
         peak = max(peak, running)
         drawdown = max(drawdown, peak - running)
     for trade in trades:
@@ -41,7 +50,7 @@ def build_analytics(income, trades, coverage):
             continue
         for group in (daily[date_key(trade["time"])], symbols.setdefault(trade["symbol"], bucket())):
             group["fills"] += 1
-            group["orders"].add((trade["symbol"], str(trade.get("orderId", "fill:"+str(trade["id"])))))
+            group["orders"].add((trade.get("exchange", "binance"), trade["symbol"], str(trade.get("orderId", "fill:"+str(trade["id"])))))
 
     def export(key, group):
         return {"key": key, **{k: str(group[k]) for k in ("realized", "fees", "funding", "net")},

@@ -1,7 +1,8 @@
 (function(root) {
   'use strict';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const fmt=(v,d=2)=>Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const money=typeof module!=='undefined'?require('./money.js'):root.JournalMoney;
+  const fmt=(v,d=2)=>money.format(v,d);
   const sign=v=>(Number(v)>0?'+':'')+fmt(v);
   const tone=v=>Number(v)>0?'positive':Number(v)<0?'negative':'neutral';
   const dayLabel=k=>k?.slice(5).replace('-',' / ')||'—';
@@ -29,12 +30,12 @@
 
   function detail(day) {
     if(!day)return '';
-    return `<section class="panel day-detail" id="day-detail"><div class="panel-heading"><div><h3>${esc(day.key)} 的账单</h3><p class="helper">${day.order_count} 个订单 · ${day.fill_count} 笔撮合${day.partial?' · 仅覆盖同步时段':''}</p></div><strong class="day-total ${tone(day.net)}">${sign(day.net)} <small>USDT</small></strong></div><div class="ledger-split">${[['平仓盈亏',day.realized],['手续费',day.fees],['资金费',day.funding]].map(([label,value])=>`<div><span>${label}</span><b class="${tone(value)}">${sign(value)}</b></div>`).join('')}</div>${day.entries.length?`<div class="table-wrap day-ledger"><table><thead><tr><th>香港时间</th><th>交易对</th><th>类型</th><th>金额（USDT）</th></tr></thead><tbody>${day.entries.slice(0,200).map(r=>`<tr><td>${clock(r.time)}</td><td>${esc(r.symbol)}</td><td>${{realized:'平仓盈亏',fees:'手续费',funding:'资金费'}[r.kind]}</td><td class="${tone(r.amount)}">${Number(r.amount)>0?'+':''}${Number(r.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8})}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">这一天没有 USDT 盈亏、手续费或资金费账单。</div>'}${day.entries.length>200?`<p class="helper">显示前 200 / ${day.entries.length} 条账单，合计包含全部记录；完整账单可导出 JSON。</p>`:''}</section>`;
+    return `<section class="panel day-detail" id="day-detail"><div class="panel-heading"><div><h3>${esc(day.key)} 的账单</h3><p class="helper">${day.order_count} 个订单 · ${day.fill_count} 笔撮合${day.partial?' · 仅覆盖同步时段':''}</p></div><strong class="day-total ${tone(day.net)}">${sign(day.net)} <small>USDT</small></strong></div><div class="ledger-split">${[['平仓盈亏',day.realized],['手续费',day.fees],['资金费',day.funding]].map(([label,value])=>`<div><span>${label}</span><b class="${tone(value)}">${sign(value)}</b></div>`).join('')}</div>${day.entries.length?`<div class="table-wrap day-ledger"><table><thead><tr><th>香港时间</th><th>交易所</th><th>交易对</th><th>类型</th><th>金额（USDT）</th></tr></thead><tbody>${day.entries.slice(0,200).map(r=>`<tr><td>${clock(r.time)}</td><td>${esc(r.exchange||'binance')}</td><td>${esc(r.symbol)}</td><td>${{realized:'平仓盈亏',fees:'手续费',funding:'资金费'}[r.kind]}</td><td title="原始金额 ${esc(r.amount)} USDT" class="${tone(r.amount)}">${Number(r.amount)>0?'+':''}${fmt(r.amount,8)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">这一天没有 USDT 盈亏、手续费或资金费账单。</div>'}${day.entries.length>200?`<p class="helper">显示前 200 / ${day.entries.length} 条账单，合计包含全部记录；完整账单可导出 JSON。</p>`:''}</section>`;
   }
 
   function render(state,selectedDay,selectedMonth) {
     const data=state.analytics;
-    if(!data?.available)return `<section class="panel empty"><h3>先同步真实账单</h3><p>同步后即可按日期和交易对复盘收益。</p><button class="button primary" data-action="${state.exchange&&state.exchange!=='binance'?'exchange-sync':'sync'}" ${state.exchange&&state.exchange!=='binance'?`data-exchange="${esc(state.exchange)}"`:''}>同步 ${esc(({okx:'OKX',bybit:'Bybit'}[state.exchange]||'Binance'))}</button></section>`;
+    if(!data?.available)return `<section class="panel empty"><h3>先同步真实账单</h3><p>${data?.issues?.length?data.issues.map(esc).join("；"):"同步后即可按日期和交易对复盘收益。"}</p><button class="button primary" data-action="${state.exchange&&state.exchange!=='binance'?'exchange-sync':'sync'}" ${state.exchange&&state.exchange!=='binance'?`data-exchange="${esc(state.exchange)}"`:''}>同步 ${esc(({okx:'OKX',bybit:'Bybit'}[state.exchange]||'Binance'))}</button></section>`;
     const days=data.days,s=data.summary,total=state.totals.USDT||{realized:'0',fees:'0',funding:'0',net:'0'};
     const best=days.find(d=>d.key===s.best),worst=days.find(d=>d.key===s.worst);
     const month=days.some(d=>d.key.startsWith(selectedMonth))?selectedMonth:days.at(-1).key.slice(0,7);

@@ -295,3 +295,56 @@ body[data-view="journal"] .section-tabs .toolbar { gap: 12px; }
   .note-save-bar .button { flex: 0 0 auto; min-width: 105px; font-size: 14px; }
   .save-shortcut { display: none; }
 }
+
+/* Combined ledger preserves account and date context at every level. */
+body[data-view="analytics"] #metrics { display: none; }
+body[data-view="analytics"] .section-tabs { display: none; }
+body[data-view="analytics"][data-ledger="all"] .analytics-top-grid { grid-template-columns: minmax(0,1fr); }
+body[data-view="analytics"][data-ledger="all"] .cost-panel,
+body[data-view="analytics"][data-ledger="all"] .summary-table { display: none; }
+body[data-view="analytics"] .exchange-selector { margin: 8px 0 16px; }
+body[data-view="analytics"] .exchange-selector label { flex-direction: row; white-space: nowrap; }
+.portfolio-controls, .portfolio-summary, .portfolio-breakdown, .portfolio-audit { padding: 24px; margin-bottom: 20px; }
+.portfolio-controls { display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; }
+.portfolio-controls > div:first-child { grid-column: 1/-1; }
+.portfolio-controls .helper { margin: 6px 0 0; }
+.portfolio-controls h2 { font-size: 21px; margin: 0; }
+.portfolio-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 0; }
+.portfolio-sources label { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 14px; margin: 0; min-height: 44px; cursor: pointer; }
+.portfolio-sources input { min-height: 0; width: 17px; height: 17px; accent-color: var(--blue); }
+.portfolio-sources label:has(:disabled) { color: #89909b; }
+.portfolio-range { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.portfolio-range > .helper { display: none; }
+.portfolio-range label { font-size: 12px; margin: 0; color: var(--muted); }
+.portfolio-range select { display: block; margin-top: 6px; min-height: 40px; width: 130px; }
+.portfolio-period { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.portfolio-period b { font-weight: 500; color: var(--ink); }
+.portfolio-total { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 24px 0; }
+.portfolio-total span { font-size: 13px; }
+.portfolio-total strong { display: block; font-size: clamp(26px,3vw,36px); font-weight: 600; margin-top: 10px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.portfolio-components { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; border-top: 1px solid var(--line); padding-top: 20px; }
+.portfolio-components span { display: block; color: var(--muted); font-size: 13px; }
+.portfolio-components b { display: block; margin-top: 8px; font-size: 18px; font-weight: 550; overflow-wrap: anywhere; }
+.portfolio-warning { color: #886126; background: #fff8e8; padding: 12px; font-size: 13px; line-height: 1.8; border-radius: 8px; }
+.portfolio-breakdown h3 { font-size: 16px; margin: 0 0 18px; }
+.portfolio-breakdown td, .portfolio-breakdown th { font-size: 13px; padding: 14px 16px; }
+.portfolio-audit { font-size: 13px; line-height: 1.9; color: var(--muted); }
+.portfolio-audit summary { cursor: pointer; color: var(--ink); font-size: 14px; min-height: 32px; }
+@media(max-width:780px) {
+  .portfolio-controls, .portfolio-summary, .portfolio-breakdown, .portfolio-audit { padding: 18px; }
+  .portfolio-controls { grid-template-columns: 1fr; gap: 8px; }
+  .portfolio-controls h2 { font-size: 18px; }
+  .portfolio-controls > div:first-child .helper,
+  body[data-view="analytics"] .exchange-selector > .helper { display: none; }
+  .portfolio-sources { gap: 8px 18px; }
+  .portfolio-range label { flex-direction: row; align-items: center; gap: 10px; }
+  .portfolio-range select { margin-top: 0; }
+  .portfolio-range { align-items: end; }
+  body[data-view="analytics"] .exchange-selector { flex-wrap: wrap; }
+  body[data-view="analytics"] .exchange-selector select { min-width: 0; width: 100%; font-size: 16px; }
+  .portfolio-range select { font-size: 16px; }
+  .portfolio-components { gap: 10px; }
+  .portfolio-components b { font-size: 16px; }
+  .portfolio-total { align-items: flex-start; flex-direction: column; }
+  .portfolio-range select, .portfolio-range .button { min-height: 44px; }
+}
