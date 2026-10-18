@@ -168,3 +168,62 @@ class AssistantTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class CooldownTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.dbpatch=patch.object(journal,'DB',Path(self.temp.name)/'journal.sqlite3');self.dbpatch.start()
+        journal.init()
+
+    def tearDown(self):
+        self.dbpatch.stop();self.temp.cleanup()
+
+    def closed(self,closed_ms,realized,fee='0',**extra):
+        j=journal.save_journal(dict(exchange='binance',symbol='ETHUSDT',direction='LONG',status='持仓中',entry_price='100',quantity='1'))
+        with journal.connect() as db:
+            d=json.loads(db.execute('SELECT data FROM journals WHERE id=?',(j['id'],)).fetchone()[0])
+            d.update(status='已平仓',execution=dict(closed_ms=closed_ms,realized_pnl=realized,fees={'USDT':fee},history_complete=True),**extra)
+            db.execute('UPDATE journals SET data=? WHERE id=?',(json.dumps(d),j['id']))
+        return j['id']
+
+    def test_recent_net_loss_starts_cooldown_and_old_or_winning_closes_do_not(self):
+        self.closed(NOW-40*60000,'-50')
+        self.closed(NOW-5*60000,'30')
+        self.assertFalse(assistant.cooldown(NOW)['active'])
+        jid=self.closed(NOW-10*60000,'0.10','0.30')  # gross win, net loss after fees
+        c=assistant.cooldown(NOW)
+        self.assertTrue(c['active']);self.assertEqual(c['trigger']['journal_id'],jid)
+        self.assertEqual(c['until'],NOW-10*60000+30*60000);self.assertEqual(c['trigger']['pnl'],'-0.20')
+        self.assertIn('还剩约 20 分钟',assistant.cooldown_warning(c))
+
+    def test_variational_browser_close_uses_page_pnl(self):
+        j=journal.save_journal(dict(exchange='variational',symbol='STRK',direction='LONG',status='持仓中',entry_price='1',quantity='10'))
+        with journal.connect() as db:
+            d=json.loads(db.execute('SELECT data FROM journals WHERE id=?',(j['id'],)).fetchone()[0])
+            d.update(status='已平仓',browser_close=dict(source='authorized_browser',trade_status='confirmed',order_status='Completed',
+                     reduce_only=True,quantity='10',closed_ms=NOW-60000,realized_pnl_display='-22.66',realized_pnl_asset='USDC'))
+            db.execute('UPDATE journals SET data=? WHERE id=?',(json.dumps(d),j['id']))
+        c=assistant.cooldown(NOW)
+        self.assertTrue(c['active']);self.assertEqual(c['trigger']['asset'],'USDC')
+
+    def test_manual_start_clear_and_minutes_setting(self):
+        c=assistant.set_cooldown({'action':'start','symbol':'near'},NOW)
+        self.assertTrue(c['active']);self.assertTrue(c['manual_active']);self.assertEqual(c['trigger']['symbol'],'NEAR')
+        self.assertFalse(assistant.cooldown(NOW+30*60000)['active'])
+        self.assertFalse(assistant.set_cooldown({'action':'clear'},NOW)['active'])
+        assistant.set_cooldown({'action':'start'},NOW)
+        self.assertFalse(assistant.set_cooldown({'minutes':0},NOW)['active'])
+        self.assertEqual(assistant.set_cooldown({'minutes':45},NOW)['until'],NOW+45*60000)
+        for bad in (-1,241,'30',True,1.5):
+            with self.assertRaises(ValueError):assistant.set_cooldown({'minutes':bad},NOW)
+        with self.assertRaises(ValueError):assistant.set_cooldown({'action':'erase'},NOW)
+
+    def test_consultation_leads_with_cooldown_warning(self):
+        self.closed(journal.now_ms()-60000,'-100')
+        plan=assistant.validate(dict(exchange='binance',symbol='ETHUSDT',direction='LONG',timeframe='5m',entry_price='100',
+            quantity='',stop_loss='',take_profit='',risk_budget='',equity='',thesis='',invalidation=''))
+        replay=market.collect(plan,NOW,getter,preflight=True)
+        with patch.object(market,'collect',return_value=replay):
+            result=assistant.create(plan)
+        self.assertTrue(result['cooldown']['active']);self.assertTrue(result['warnings'][0].startswith('冷静期：ETHUSDT 亏损平仓 -100'))

@@ -168,6 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             if route.path == "/api/state":
                 data = journal.state(binance_configured=all(credentials(ROOT)))
                 data["stop_coverage"] = stop_coverage.summarize(data, journal.now_ms())
+                data["cooldown"] = trade_assistant.cooldown()
                 session = self.session()
                 data.update(csrf=session['csrf'] if session else TOKEN, ai=ai_review.status(), credentials_configured=all(credentials(ROOT)),
                             auth={'enabled': bool(self.authentication and self.authentication.enabled), 'username': self.authentication.account['username'] if session else ''})
@@ -193,6 +194,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trader_memory.snapshot())
             if route.path == '/api/assistant/memory.md':
                 return self.send(200, trader_memory.markdown(trader_memory.snapshot()), 'text/markdown; charset=utf-8', 'trader-memory.md')
+            if route.path == '/api/assistant/cooldown':
+                return self.send(200, trade_assistant.cooldown())
             if route.path == '/api/assistant/checks':
                 return self.send(200, {'items':trade_assistant.listing()})
             if route.path == '/api/market/replay':
@@ -322,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, journal.save_journal(payload))
             if path == '/api/assistant/memory':
                 return self.send(200, trader_memory.save(payload))
+            if path == '/api/assistant/cooldown':
+                return self.send(200, trade_assistant.set_cooldown(payload))
             if path == '/api/assistant/check':
                 return self.send(200, trade_assistant.create(payload))
             if path == '/api/market/replay':

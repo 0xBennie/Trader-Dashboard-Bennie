@@ -1,7 +1,9 @@
 """Source-bounded pre-entry consultation. This is not an order or discipline approval."""
 import json
 import uuid
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 import journal
 import market_replay
@@ -11,6 +13,73 @@ import ai_provider
 
 def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS assistant_checks(id TEXT PRIMARY KEY,created INTEGER NOT NULL,data TEXT NOT NULL)')
+
+
+COOLDOWN_KEY='assistant.cooldown'
+DEFAULT_COOLDOWN_MINUTES=30
+
+
+def cooldown(now=None, db=None):
+    """Recent losing closes. A reminder for the trader, not a trading block."""
+    if db is None:
+        with journal.connect() as conn:
+            return cooldown(now, conn)
+    import review_automation, review_learning
+    now=journal.now_ms() if now is None else now
+    cfg=journal.kv(COOLDOWN_KEY,{},db)
+    minutes=int(cfg.get('minutes',DEFAULT_COOLDOWN_MINUTES));window=minutes*60000
+    losses=[]
+    if window:
+        for r in journal.all_journals(db):
+            closed=review_learning.closed(r)
+            if not closed or not 0<=now-closed<window:
+                continue
+            res=review_automation.result(r)
+            try:
+                pnl=Decimal(str(res['net'] if res['net'] is not None else res['realized']))
+            except (InvalidOperation,TypeError,ValueError):
+                continue
+            if pnl.is_finite() and pnl<0:
+                losses.append(dict(source='closed_trade',journal_id=r['id'],symbol=r.get('symbol',''),
+                                   exchange=r.get('exchange','binance'),at=closed,pnl=str(pnl),asset=res['asset']))
+        manual=cfg.get('manual')
+        if manual and 0<=now-manual['at']<window:
+            losses.append(dict(source='manual',journal_id=None,symbol=manual.get('symbol',''),
+                               exchange=None,at=manual['at'],pnl=None,asset=None))
+    latest=max(losses,key=lambda x:x['at']) if losses else None
+    return dict(minutes=minutes,active=bool(latest),trigger=latest,until=latest['at']+window if latest else None,
+                checked_at=now,manual_active=any(x['source']=='manual' for x in losses),
+                note='根据已确认平仓的亏损或你手动标记的止损提醒；不是交易限制，也不读取未同步的外部仓位。')
+
+
+def set_cooldown(payload, now=None):
+    now=journal.now_ms() if now is None else now
+    action=payload.get('action')
+    with journal.connect() as db:
+        cfg=journal.kv(COOLDOWN_KEY,{},db)
+        if 'minutes' in payload:
+            m=payload['minutes']
+            if isinstance(m,bool) or not isinstance(m,int) or not 0<=m<=240:
+                raise ValueError('冷静期需要 0–240 分钟的整数；0 表示关闭提醒。')
+            cfg['minutes']=m
+        if action=='start':
+            symbol=str(payload.get('symbol') or '').strip().upper()[:40]
+            cfg['manual']=dict(at=now,symbol=symbol)
+        elif action=='clear':
+            cfg.pop('manual',None)
+        elif action is not None:
+            raise ValueError('未知的冷静期操作。')
+        journal.set_kv(db,COOLDOWN_KEY,cfg)
+        return cooldown(now,db)
+
+
+def cooldown_warning(c):
+    if not c or not c['active']:
+        return None
+    t=c['trigger'];hk=lambda ms:datetime.fromtimestamp(ms/1000,ZoneInfo('Asia/Hong_Kong')).strftime('%H:%M')
+    left=max(1,-(-(c['until']-c['checked_at'])//60000))
+    what=(t['symbol']+' ' if t['symbol'] else '')+(f"亏损平仓 {t['pnl']} {t['asset']}" if t['source']=='closed_trade' else '你手动标记了止损')
+    return f"冷静期：{what}（{hk(t['at'])}），还剩约 {left} 分钟，建议 {hk(c['until'])} 后再开新仓。这笔是计划内的机会，还是想把亏损赚回来？"
 
 
 def number(value, name, optional=False):
@@ -132,6 +201,10 @@ def create(payload):
     replay=market_replay.collect(plan,preflight=True)
     memory=trader_memory.context(plan['symbol'])
     result=evaluate(plan,replay,memory)
+    result['cooldown']=cooldown(result['created_at'])
+    warning=cooldown_warning(result['cooldown'])
+    if warning:
+        result['warnings'].insert(0,warning)
     if payload.get('use_ai') is True:
         if ai_provider.status()['available']:
             import ai_review
