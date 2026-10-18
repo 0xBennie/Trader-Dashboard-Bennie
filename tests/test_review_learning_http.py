@@ -32,6 +32,13 @@ class ReviewHTTPTests(unittest.TestCase):
         except urllib.error.HTTPError as e:return e.code,json.load(e)
 
     def test_roundtrip_export_and_bad_requests(self):
+        import review_automation
+        review_automation.ensure_daily()
+        status,daily=self.request('/api/review/daily')
+        self.assertEqual(status,200)
+        self.assertEqual(len(daily['reports']),1)
+        self.assertEqual(self.request('/api/review/retry',{},token='bad-token')[0],403)
+        self.assertEqual(self.request('/api/review/retry',{})[1]['queued'],0)
         status,j=self.request('/api/journals',{'symbol':'ETHUSDT','review_next':'先确认失效条件'})
         self.assertEqual(status,200)
         status,action=self.request('/api/review/actions',{'journal_id':j['id']});self.assertEqual(status,200)

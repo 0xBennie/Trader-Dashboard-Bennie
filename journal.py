@@ -51,6 +51,8 @@ def init():
         sharing.init(db)
         import review_learning
         review_learning.init(db)
+        import review_automation
+        review_automation.init(db)
     DB.chmod(0o600)
 
 
@@ -84,8 +86,8 @@ def review_progress(db, records, stamp=None):
     start = stamp - 30 * 86400000
     items = []
     for item in records:
-        closed = (item.get("execution") or {}).get("closed_ms")
         import review_learning
+        closed = review_learning.closed(item)
         texts = review_learning.content(item)
         versions = [json.loads(row['data']) | {'_time': row['time']} for row in
                     db.execute('SELECT time,data FROM revisions WHERE journal_id=? ORDER BY id DESC', (item['id'],))] if any(texts) else []
@@ -293,6 +295,7 @@ def state(binance_configured=False):
         from analytics import build_analytics
         from exchange_sync import states
         from portfolio import report
+        import review_automation
         analytics = build_analytics(income, trades, coverage)
         if analytics.get("available"):
             totals.setdefault("USDT", {k:"0" for k in ("realized","fees","funding","net")})
@@ -300,4 +303,5 @@ def state(binance_configured=False):
                 "orders": group_orders(trades), "trade_context": kv("trade_context", {}, db),
                 "recorder": kv("recorder_status", {}), "recorder_settings": kv("recorder_settings", {"enabled":True,"interval":15,"auto_ai":True}),
                 "totals": totals, "curve": curve, "analytics": analytics, "ledger_coverage": coverage,
-                "analyses": analyses, "review_progress": reviews, "review_learning": learning, "server_time": now_ms()}
+                "analyses": analyses, "review_progress": reviews, "review_learning": learning,
+                "review_automation": review_automation.status(db), "server_time": now_ms()}

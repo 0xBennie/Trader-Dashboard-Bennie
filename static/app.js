@@ -164,9 +164,11 @@ function journalView() {
 }
 
 function externalSnapshot(j) {
+  const observation=j.browser_observation;
+  const browserFacts=observation?`<div class="connection-inset"><b>浏览器最近核对 · ${date(observation.observed_at,true)}</b><p>均价 ${precise(observation.entry_price)} · 数量 ${escapeHTML(observation.quantity)} · ${observation.close?'已核对全仓平仓成交':'该时点观察到持仓'}。这不是持续 API 同步。</p><p>浮盈亏 ${observation.position?.unrealized_pnl==null?'待核对':signed(observation.position.unrealized_pnl)+' USD'} · 挂单 ${observation.orders===null?'未读取':(observation.orders||[]).length+' 张已读取'}</p></div>`:'';
   const s=j.screenshot_snapshot;
-  if(!s)return '<div class="connection-inset">手动记录 · 尚未接入该交易所自动采集。</div>';
-  return `<section class="cycle-summary"><div class="cycle-summary-head"><div><span class="eyebrow">用户提供的持仓截图</span><h3>截图时的仓位状态</h3></div><strong class="${tone(s.unrealized_pnl)}">${s.unrealized_pnl==null?'浮盈亏未提供':signed(s.unrealized_pnl)+' USD'}</strong></div><div class="cycle-facts"><span>标记价格<b>${precise(s.mark_price)}</b></span><span>名义价值<b>${fmt(s.notional)} USD</b></span><span>清算价格<b>${s.liquidation_price?precise(s.liquidation_price):'待核对'}</b></span><span>截图显示回报率<b class="${tone(s.reported_roi_pct)}">${s.reported_roi_pct==null?'待核对':signed(s.reported_roi_pct)+'%'}</b></span></div><p>归档时间：${date(j.created,true)}（香港）；${j.opened_at?'实际开仓时间见上方':'实际开仓时间未提供'}。以上为截图原值，不是实时行情。</p><p>USD 为截图美元标价，结算资产、手续费与资金费待核对；未计入 Binance 账户收益。</p><p>实际盈亏可从 Variational 的 Portfolio 导出成交、已实现盈亏与资金费账单。<a class="external-export-link" href="https://help.variational.io/en/articles/15029202-how-do-i-download-my-trading-history" target="_blank" rel="noopener noreferrer">查看官方导出方法 ↗</a></p></section>`;
+  if(!s)return browserFacts||'<div class="connection-inset">手动记录 · 尚未接入该交易所自动采集。</div>';
+  return `${browserFacts}<section class="cycle-summary"><div class="cycle-summary-head"><div><span class="eyebrow">用户提供的持仓截图</span><h3>截图时的仓位状态</h3></div><strong class="${tone(s.unrealized_pnl)}">${s.unrealized_pnl==null?'浮盈亏未提供':signed(s.unrealized_pnl)+' USD'}</strong></div><div class="cycle-facts"><span>标记价格<b>${precise(s.mark_price)}</b></span><span>名义价值<b>${fmt(s.notional)} USD</b></span><span>清算价格<b>${s.liquidation_price?precise(s.liquidation_price):'待核对'}</b></span><span>截图显示回报率<b class="${tone(s.reported_roi_pct)}">${s.reported_roi_pct==null?'待核对':signed(s.reported_roi_pct)+'%'}</b></span></div><p>归档时间：${date(j.created,true)}（香港）；${j.opened_at?'实际开仓时间见上方':'实际开仓时间未提供'}。以上为截图原值，不是实时行情。</p><p>USD 为截图美元标价，结算资产、手续费与资金费待核对；未计入 Binance 账户收益。</p><p>实际盈亏可从 Variational 的 Portfolio 导出成交、已实现盈亏与资金费账单。<a class="external-export-link" href="https://help.variational.io/en/articles/15029202-how-do-i-download-my-trading-history" target="_blank" rel="noopener noreferrer">查看官方导出方法 ↗</a></p></section>`;
 }
 function screenshotOrders(j) {
   const orders=j.screenshot_snapshot?.orders||[];
@@ -320,6 +322,10 @@ document.addEventListener('click', async event=>{
     if(button.dataset.tradeMode){tradeMode=button.dataset.tradeMode;orderFilter=null;render();return;}
     if(button.dataset.orderKey){tradeMode='fills';orderFilter={key:button.dataset.orderKey,symbol:button.dataset.symbol};render();return;}
     const action=button.dataset.action;
+    if(action==='dashboard-journal'&&$('#daily-dialog').open)$('#daily-dialog').close();
+    if(action==='daily-history'){const data=await api('/api/review/daily');$('#daily-dialog').innerHTML=JournalDaily.history(data);$('#daily-dialog').showModal();return;}
+    if(action==='close-daily'){$('#daily-dialog').close();return;}
+    if(action==='daily-retry'){const result=await api('/api/review/retry',{});await refresh();toast('已将 '+result.queued+' 份失败任务加入队列。');return;}
     if(action==='open-learning'){if(!await saveNotes(true))return;view='progress';render();JournalLearning.openTools();return;}
     if(action==='pin-review-action'){if(!await saveNotes(true))return;await api('/api/review/actions',{journal_id:chosen().id});await refresh();await JournalLearning.reload();toast('已加入首页提醒；下一笔结束后可以记录实践。');return;}
     if(!state&&['settings','ai-settings','recorder-settings'].includes(action)){toast('正在读取连接信息，请稍后再试。');return;}

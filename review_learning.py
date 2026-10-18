@@ -32,6 +32,27 @@ def content(record):
     return tuple(str(record.get(key) or '').strip() for key in TEXT_FIELDS)
 
 
+def closed(record):
+    """Confirmed closure is review evidence, not necessarily a reconciled P/L ledger."""
+    value = (record.get('execution') or {}).get('closed_ms')
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    c = record.get('browser_close') or {}
+    if record.get('exchange') != 'variational' or record.get('status') != '已平仓':
+        return None
+    from decimal import Decimal, InvalidOperation
+    try:
+        full = Decimal(str(c.get('quantity'))) == Decimal(str(record.get('quantity'))) > 0
+    except (InvalidOperation, TypeError, ValueError):
+        full = False
+    value = c.get('closed_ms')
+    if (c.get('source') == 'authorized_browser' and c.get('trade_status') == 'confirmed'
+            and c.get('order_status') == 'Completed' and c.get('reduce_only') is True and full
+            and isinstance(value, int) and not isinstance(value, bool) and value > 0):
+        return value
+    return None
+
+
 def fields(payload, previous):
     result = {}
     for key in ('review_keep', 'review_next'):
@@ -155,11 +176,10 @@ def summary(db, records, now, days=30, exchange='all'):
     start = now - days * 86400000
     by_id = {j['id']: j for j in records}
     matching = [j for j in records if exchange == 'all' or j.get('exchange', 'binance') == exchange]
-    closed = [j for j in matching if isinstance((j.get('execution') or {}).get('closed_ms'), int)
-              and start <= j['execution']['closed_ms'] <= now]
-    reviewed = [j for j in closed if j.get('review_status', {}).get('personal_complete')]
+    completed = [j for j in matching if closed(j) is not None and start <= closed(j) <= now]
+    reviewed = [j for j in completed if j.get('review_status', {}).get('personal_complete')]
     structured = [j for j in reviewed if j.get('review_execution') or j.get('review_mistakes') or j.get('review_keep') or j.get('review_next')]
-    examples = lambda rows: [dict(id=j['id'], symbol=j['symbol'], exchange=j.get('exchange', 'binance'), closed_at=j['execution']['closed_ms']) for j in sorted(rows, key=lambda j:j['execution']['closed_ms'], reverse=True)]
+    examples = lambda rows: [dict(id=j['id'], symbol=j['symbol'], exchange=j.get('exchange', 'binance'), closed_at=closed(j)) for j in sorted(rows, key=closed, reverse=True)]
     patterns = []
     for key, label in MISTAKES.items():
         rows = [j for j in structured if key in set(str(j.get('review_mistakes') or '').split(','))]
@@ -178,8 +198,8 @@ def summary(db, records, now, days=30, exchange='all'):
         item['eligible'] = [dict(id=j['id'],symbol=j['symbol'],exchange=j.get('exchange','binance'),opened_at=opened(j))
                             for j in records if j['id'] not in used and practice_eligible(j,item,now)] if not item['archived'] else []
         actions.append(item)
-    return dict(days=days, exchange=exchange, start=start, through=now, closed_count=len(closed), reviewed_count=len(reviewed),
-                structured_count=len(structured), unknown_close_count=sum(j.get('status')=='已平仓' and not (j.get('execution') or {}).get('closed_ms') for j in matching),
+    return dict(days=days, exchange=exchange, start=start, through=now, closed_count=len(completed), reviewed_count=len(reviewed),
+                structured_count=len(structured), unknown_close_count=sum(j.get('status')=='已平仓' and not closed(j) for j in matching),
                 execution=[dict(key=k,label=v,count=sum(j.get('review_execution')==k for j in structured)) for k,v in EXECUTION.items() if k],
                 patterns=patterns, actions=actions, unstructured=examples([j for j in reviewed if j not in structured]))
 

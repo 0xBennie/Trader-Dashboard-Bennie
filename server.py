@@ -26,6 +26,7 @@ import pretrade_evidence
 import auth
 import sharing
 import review_learning
+import review_automation
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -183,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
             if route.path == '/api/review/learning':
                 query = parse_qs(route.query)
                 return self.send(200, review_learning.report(int(query.get('days', ['30'])[0]), query.get('exchange', ['all'])[0]))
+            if route.path == '/api/review/daily':
+                return self.send(200, review_automation.listing())
             if route.path == "/api/ai":
                 return self.send(200, ai_provider.status())
             if route.path == '/api/shares':
@@ -305,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, review_routes[path](payload))
             if path == "/api/journals":
                 return self.send(200, journal.save_journal(payload))
+            if path == '/api/review/retry':
+                return self.send(200, review_automation.retry_failed())
             if path == '/api/shares/preview':
                 return self.send(200, sharing.preview(payload))
             if path == '/api/shares/publish':
@@ -392,7 +397,7 @@ def main():
     except BlockingIOError:
         lock.close()
         parser.error("这份交易账本已有服务在运行，请直接打开原页面。")
-    server, worker, exchange_workers = None, None, []
+    server, worker, review_worker, exchange_workers = None, None, None, []
     try:
         # Own the database and port before marking any previous tasks interrupted.
         server = ThreadingHTTPServer((args.host, args.port), Handler)
@@ -406,6 +411,7 @@ def main():
                 journal.set_kv(db, "sync", {"status": "failed", "error": "上次同步被中断，请重新同步。"})
         worker = recorder.Recorder(SYNC_LOCK).start()
         exchange_workers = exchange_sync.start_workers()
+        review_worker = review_automation.Worker().start()
         print(f"交易手记已启动：http://127.0.0.1:{args.port}", flush=True)
         server.serve_forever()
     finally:
@@ -413,6 +419,7 @@ def main():
             extra.stop.set()
             extra.wake.set()
         if worker: worker.stop.set()
+        if review_worker: review_worker.stop.set()
         if server: server.server_close()
         lock.close()
 

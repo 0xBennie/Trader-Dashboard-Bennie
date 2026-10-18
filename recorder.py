@@ -368,24 +368,8 @@ class Recorder:
         self.update_status(market_at=self.market_at or None, market_errors=errors)
 
     def process_ai(self):
-        import ai_review
-        if not self.settings()["auto_ai"] or ai_review.LOCK.locked():
-            return
-        with journal.connect() as db:
-            for row in db.execute("SELECT event_id,analysis_id FROM auto_reviews WHERE status='running'").fetchall():
-                status = db.execute("SELECT status FROM analyses WHERE id=?", (row[1],)).fetchone()
-                if status and status[0] != "running":
-                    db.execute("UPDATE auto_reviews SET status=? WHERE event_id=?", (status[0],row[0]))
-            pending = db.execute("SELECT * FROM auto_reviews WHERE status='pending' AND due<=? ORDER BY due LIMIT 1", (journal.now_ms(),)).fetchone()
-        if pending:
-            try:
-                aid = ai_review.start(pending["journal_id"])
-                with journal.connect() as db:
-                    db.execute("UPDATE auto_reviews SET status='running',analysis_id=? WHERE event_id=?", (aid,pending["event_id"]))
-            except ValueError as e:
-                self.update_status(ai_error=str(e))
-                with journal.connect() as db:
-                    db.execute("UPDATE auto_reviews SET due=? WHERE event_id=?", (journal.now_ms()+300000,pending["event_id"]))
+        import review_automation
+        review_automation.process_queue()
 
     def run(self):
         failures = 0

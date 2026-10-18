@@ -30,7 +30,7 @@ def evidence(jid):
         # A screenshot journal must never borrow similarly named Binance evidence.
         return selected, {
             "journal": {k: v for k, v in selected.items() if k not in {"captures", "events", "market_captures", "execution"}},
-            "source_scope": "Variational 用户截图记录；未接入该交易所 API。截图不证明当前仍持仓或挂单仍有效。USD 为截图美元标价，结算资产未核对。",
+            "source_scope": "Variational 截图 / 经授权浏览器记录，未接入该交易所 API。browser_entry、browser_close、browser_observation 是各自标注时间的页面核对证据；截图与历史观察不证明当前仍持仓或挂单有效。费用和最终净额未核对时保持未知。USD 为截图美元标价；若已实现盈亏另标 USDC 则按原资产保留，不跨币种相加。",
             "sync": {"status": "not_connected", "exchange": "variational"},
             "computed": {"plan_risk": selected["risk"], "quote_currency": "USD"},
             "positions": [], "recent_fills": [], "exchange_orders_and_planning": {},
