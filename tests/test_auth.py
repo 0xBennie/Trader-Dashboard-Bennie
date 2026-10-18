@@ -47,12 +47,12 @@ class AuthTests(unittest.TestCase):
         return headers['Set-Cookie'].split(';')[0]
 
     def test_all_private_routes_are_gated_before_read_or_write(self):
-        for path in ['/api/review/daily', '/daily-review.js', '/api/review/learning', '/learning.js', '/api/state', '/api/ai', '/api/export', '/api/v1/intents', '/assets/private-attachment.png', '/index.html']:
+        for path in ['/api/assistant/memory', '/api/assistant/memory.md', '/api/assistant/checks', '/api/market/replay?id=private', '/assistant.js', '/api/review/daily', '/daily-review.js', '/api/review/learning', '/learning.js', '/api/state', '/api/ai', '/api/export', '/api/v1/intents', '/assets/private-attachment.png', '/index.html']:
             self.assertEqual(self.request(path)[0], 401, path)
         with patch.object(server.journal, 'save_journal') as save:
             self.assertEqual(self.request('/api/journals', {'id': 'private'}, csrf=server.TOKEN)[0], 401)
             save.assert_not_called()
-        for route in ['/api/review/retry', '/api/review/actions', '/api/review/actions/archive', '/api/review/practices', '/api/review/practices/undo', '/api/ai/config', '/api/ai/check', '/api/ai/models']:
+        for route in ['/api/assistant/check', '/api/assistant/memory', '/api/market/replay', '/api/review/retry', '/api/review/actions', '/api/review/actions/archive', '/api/review/practices', '/api/review/practices/undo', '/api/ai/config', '/api/ai/check', '/api/ai/models']:
             self.assertEqual(self.request(route, {'api_key':'sk-fixture'}, csrf=server.TOKEN)[0], 401)
         self.assertEqual(self.request('/login')[0], 200)
 
@@ -90,6 +90,17 @@ class AuthTests(unittest.TestCase):
         with self.assertRaises(ValueError): auth.Auth(self.path.parent / 'missing.json', 'https://trader.example.com')
         for value in ['http://trader.example.com', 'https://user:pass@example.com', 'https://example.com/path']:
             with self.assertRaises(ValueError): auth.validate_origin(value)
+
+    def test_assistant_writes_require_session_csrf(self):
+        cookie=self.login(public=True)
+        csrf=self.auth.session(cookie,True)['csrf']
+        for route,method in [('/api/assistant/memory',server.trader_memory.save),('/api/assistant/check',server.trade_assistant.create),('/api/market/replay',server.market_replay.capture)]:
+            module=server.trader_memory if route.endswith('memory') else server.trade_assistant if route.endswith('check') else server.market_replay
+            with patch.object(module,method.__name__,return_value={'id':'test'}) as call:
+                self.assertEqual(self.request(route,{'id':'test'},cookie,server.TOKEN,public=True)[0],403)
+                call.assert_not_called()
+                self.assertEqual(self.request(route,{'id':'test'},cookie,csrf,public=True)[0],200)
+                call.assert_called_once()
 
 
 if __name__ == '__main__': unittest.main()

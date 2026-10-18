@@ -69,6 +69,9 @@ def review_worker(intent,evidence):
             evidence['backtest']={k:v for k,v in evidence['backtest'].items() if k not in {'trades','raw','bars'}}
         plan={k:intent.get(k) for k in ('symbol','market','direction','entry_price','quantity','stop_loss','take_profit',
               'thesis','invalidation','emotion','strategy_id','strategy_version','rules_confirmed','risk','plan_hash','policy_version')}
+        import market_replay, trader_memory
+        evidence['market_replay']=market_replay.for_ai(market_replay.collect(dict(intent,exchange='binance'),preflight=True))
+        evidence['personal_memory']=trader_memory.context(intent['symbol'])
         report=model_json('你是交易前的反证教练。审查此版计划的理由、失效条件、风险和当前证据。support 只表示证据足以进入本人确认，不是买卖建议或安全保证。无止损、数据过期、证据矛盾、无可验证依据或 AI 不能确认时给 needs_info 或 reject。本应用不提供策略回测，不能把单笔审核描述为策略有效性验证，不能编造胜率。用户手写理由与 AI 假设分开，不能替用户合理化冲动开仓。引用数字以服务端提供为准。总字数约500字。',
                           {'plan':plan,'evidence':evidence},REVIEW_PROPERTIES,intent.get('image'))
         report.setdefault('model', ai_provider.status()['model'])

@@ -27,6 +27,9 @@ import auth
 import sharing
 import review_learning
 import review_automation
+import market_replay
+import trader_memory
+import trade_assistant
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -186,6 +189,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, review_learning.report(int(query.get('days', ['30'])[0]), query.get('exchange', ['all'])[0]))
             if route.path == '/api/review/daily':
                 return self.send(200, review_automation.listing())
+            if route.path == '/api/assistant/memory':
+                return self.send(200, trader_memory.snapshot())
+            if route.path == '/api/assistant/memory.md':
+                return self.send(200, trader_memory.markdown(trader_memory.snapshot()), 'text/markdown; charset=utf-8', 'trader-memory.md')
+            if route.path == '/api/assistant/checks':
+                return self.send(200, {'items':trade_assistant.listing()})
+            if route.path == '/api/market/replay':
+                jid = parse_qs(route.query).get('id',[''])[0]
+                return self.send(200, {'replay':market_replay.latest(jid)})
             if route.path == "/api/ai":
                 return self.send(200, ai_provider.status())
             if route.path == '/api/shares':
@@ -308,6 +320,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, review_routes[path](payload))
             if path == "/api/journals":
                 return self.send(200, journal.save_journal(payload))
+            if path == '/api/assistant/memory':
+                return self.send(200, trader_memory.save(payload))
+            if path == '/api/assistant/check':
+                return self.send(200, trade_assistant.create(payload))
+            if path == '/api/market/replay':
+                return self.send(200, {'replay':market_replay.capture(payload.get('id'),force=True)})
             if path == '/api/review/retry':
                 return self.send(200, review_automation.retry_failed())
             if path == '/api/shares/preview':

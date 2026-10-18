@@ -31,6 +31,8 @@ class HTTPTrainingTests(unittest.TestCase):
     def setUp(self):
         self.folder=tempfile.TemporaryDirectory()
         self.dbpatch=patch.object(journal,'DB',Path(self.folder.name)/'db.sqlite3');self.dbpatch.start()
+        self.marketpatch=patch('market_replay.collect',return_value={'status':'unavailable','windows':[], 'note':'隔离 HTTP 验收：不调用外部行情'})
+        self.marketpatch.start()
         journal.init();training.init();backtest.init();pretrade_ai.init()
         self.http=ThreadingHTTPServer(('127.0.0.1',0),server.Handler)
         self.thread=threading.Thread(target=self.http.serve_forever,daemon=True);self.thread.start()
@@ -38,7 +40,7 @@ class HTTPTrainingTests(unittest.TestCase):
 
     def tearDown(self):
         self.http.shutdown();self.http.server_close();self.thread.join()
-        self.dbpatch.stop();self.folder.cleanup()
+        self.marketpatch.stop();self.dbpatch.stop();self.folder.cleanup()
 
     def request(self,path,body=None,method=None,token=None):
         request=urllib.request.Request(self.url+path,data=json.dumps(body).encode() if body is not None else None,

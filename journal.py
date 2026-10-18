@@ -53,6 +53,10 @@ def init():
         review_learning.init(db)
         import review_automation
         review_automation.init(db)
+        import market_replay, trader_memory, trade_assistant
+        market_replay.init(db)
+        trader_memory.init(db)
+        trade_assistant.init(db)
     DB.chmod(0o600)
 
 

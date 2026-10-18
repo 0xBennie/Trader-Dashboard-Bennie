@@ -210,8 +210,11 @@ class Worker:
         with journal.connect() as db:
             enqueue(db, now)
         process_queue(now)
+        import market_replay, trader_memory
+        market_replay.warm_one(now)
+        trader_memory.refresh_document()
         with journal.connect() as db:
-            journal.set_kv(db, 'review_worker', {'last_success':now,'error':None})
+            journal.set_kv(db, 'review_worker', {'last_success':journal.now_ms(),'error':None})
 
     def run(self):
         while not self.stop.is_set():

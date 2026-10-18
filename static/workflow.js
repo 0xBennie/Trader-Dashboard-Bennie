@@ -2,8 +2,8 @@
   'use strict';
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const time=x=>x?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Hong_Kong',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(x)):'时间待核对';
-  const group=view=>({analytics:'training',trades:'journal',review:'progress'}[view]||view);
-  const sections={training:[['training','账户与风险'],['analytics','收益统计']],journal:[['journal','持仓与日志'],['trades','成交明细']],progress:[['progress','交易回顾'],['review','AI 报告']]};
+  const group=view=>({analytics:'training',trades:'journal',review:'progress',assistant:'journal'}[view]||view);
+  const sections={training:[['training','账户与风险'],['analytics','收益统计']],journal:[['journal','持仓与日志'],['assistant','开仓前问助手'],['trades','成交明细']],progress:[['progress','交易回顾'],['review','AI 报告']]};
   function navigation(view){return (sections[group(view)]||[]).map(([v,label])=>`<button class="button ${v===view?'selected':''}" data-view="${v}" aria-current="${v===view?'page':'false'}">${label}</button>`).join('');}
   function aiEntry(state,journal,reports=[],online=true){
     const result=(status,label,action,hint,disabled=false)=>({status,label,action,hint,disabled});
