@@ -95,7 +95,7 @@ def divergence(candles, rsi_values, kind):
 
 def snapshot(candles):
     keys=('close','high','low','ema20','ema50','rsi','rsi_prev','macd_hist','macd_hist_prev','atr',
-          'volume_ratio','swing_low','swing_high','bull_div','bear_div','prev_high','prev_low','recent_low','recent_high')
+          'volume_ratio','swing_low','swing_high','bull_div','bear_div','prev_high','prev_low','recent_low','recent_high','price_decimals')
     out=dict.fromkeys(keys);out.update(bars=len(candles),patterns=[],prev_patterns=[])
     if not candles:
         return out
@@ -108,5 +108,6 @@ def snapshot(candles):
                swing_low=s['lows'][-1][1] if s['lows'] else None,swing_high=s['highs'][-1][1] if s['highs'] else None,
                patterns=patterns(candles),prev_patterns=patterns(candles[:-1]),
                prev_high=float(candles[-2]['high']) if len(candles)>1 else None,prev_low=float(candles[-2]['low']) if len(candles)>1 else None,
+               price_decimals=max(len(x.rstrip('0').split('.')[1]) if '.' in x else 0 for x in (str(c['close']) for c in candles[-20:])),
                recent_low=min(_f(candles[-3:],'low')),recent_high=max(_f(candles[-3:],'high')),bull_div=divergence(candles,r,'bull'),bear_div=divergence(candles,r,'bear'))
     return out

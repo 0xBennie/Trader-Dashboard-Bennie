@@ -83,7 +83,7 @@ class View:
         return self.s.get('bull_div' if self.side == 1 else 'bear_div')
 
 
-def _position_trigger(code_pos, code_trig, v, tf):
+def _position_trigger(code_pos, code_trig, v, tf, P=lambda x: x):
     """Returns (position_status, position_value, trigger_ok, trigger_price, wait_for, structure)."""
     atr, close, sd = v['atr'], v['close'], v.side
     word = '站上' if sd == 1 else '跌破'
@@ -94,8 +94,8 @@ def _position_trigger(code_pos, code_trig, v, tf):
         top = lvl+0.5*atr*sd
         near = not v.above(rec, top) and v.above(rec, lvl-1.0*atr*sd) or rec == lvl-1.0*atr*sd
         ok = not v.above(top, close)
-        return ('pass' if near else 'fail', f'摆动{"低" if sd == 1 else "高"}点 {fmt(lvl)}，区域 {fmt(min(lvl, top))}–{fmt(max(lvl, top))}，最近 {fmt(rec)}',
-                ok, top, None if ok else f'等 {tf} 收盘{word} {fmt(top)}（区域{"上" if sd == 1 else "下"}沿）', lvl)
+        return ('pass' if near else 'fail', f'摆动{"低" if sd == 1 else "高"}点 {fmt(P(lvl))}，区域 {fmt(P(min(lvl, top)))}–{fmt(P(max(lvl, top)))}，最近 {fmt(P(rec))}',
+                ok, P(top), None if ok else f'等 {tf} 收盘{word} {fmt(P(top))}（区域{"上" if sd == 1 else "下"}沿）', lvl)
     if code_pos == 'pullback_ema20':
         e20, e50, rec, prev = v['ema20'], v['ema50'], v.recent(), v.prev_extreme()
         if not _known(e20, e50, rec, atr, close, prev):
@@ -103,8 +103,8 @@ def _position_trigger(code_pos, code_trig, v, tf):
         near = not v.above(rec, e20+0.5*atr*sd) and not v.above(e50, close)
         ok = v.above(close, prev) and v.above(close, e20)
         trig = v.bar_extreme()
-        return ('pass' if near else 'fail', f'EMA20 {fmt(e20)}，最近 {fmt(rec)}，EMA50 {fmt(e50)}',
-                ok, trig, None if ok else f'等 {tf} 收盘{word}回踩 K 线的{"高" if sd == 1 else "低"}点 {fmt(trig)}，且在 EMA20 {"上" if sd == 1 else "下"}方', rec)
+        return ('pass' if near else 'fail', f'EMA20 {fmt(P(e20))}，最近 {fmt(P(rec))}，EMA50 {fmt(P(e50))}',
+                ok, P(trig), None if ok else f'等 {tf} 收盘{word}回踩 K 线的{"高" if sd == 1 else "低"}点 {fmt(P(trig))}，且在 EMA20 {"上" if sd == 1 else "下"}方', rec)
     if code_pos == 'oversold_at_low':
         r, rp, lvl, rec = v['rsi'], v['rsi_prev'], v.level(), v.recent()
         if not _known(r, lvl, rec, atr, close):
@@ -114,12 +114,12 @@ def _position_trigger(code_pos, code_trig, v, tf):
         prev = v.prev_extreme()
         ok = v.reversal('prev_patterns') and prev is not None and v.above(close, prev)
         if ok:
-            return 'pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(lvl)}', True, prev, None, rec
+            return 'pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(P(lvl))}', True, P(prev), None, rec
         if v.reversal():
             trig = v.bar_extreme()
-            return ('pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(lvl)}', False, trig,
-                    f'反转 K 线已出现，等下一根{word}它的{"高" if sd == 1 else "低"}点 {fmt(trig)}', rec)
-        return ('pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(lvl)}', False, None,
+            return ('pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(P(lvl))}', False, P(trig),
+                    f'反转 K 线已出现，等下一根{word}它的{"高" if sd == 1 else "低"}点 {fmt(P(trig))}', rec)
+        return ('pass' if near else 'fail', f'RSI {r2(r)}，摆动点 {fmt(P(lvl))}', False, None,
                 f'等一根反转 K 线收盘，再{word}它的{"高" if sd == 1 else "低"}点', rec)
     return None, '', None, None, None, None
 
@@ -136,11 +136,13 @@ def judge(plan, market, system, account):
     hard, lessons = [], []
     flow = market.get('flow') or {}
     atr = d['atr']
+    dec = d['price_decimals']
+    P = (lambda x: round(x, dec) if x is not None else None) if dec is not None else (lambda x: x)
 
     # Location and trigger
     pos_status, pos_value, trig_ok, trig_price, wait_for, structure = None, '', None, None, None, None
     if setup and setup['position']:
-        pos_status, pos_value, trig_ok, trig_price, wait_for, structure = _position_trigger(setup['position'][0], setup['trigger'][0], d, tf)
+        pos_status, pos_value, trig_ok, trig_price, wait_for, structure = _position_trigger(setup['position'][0], setup['trigger'][0], d, tf, P)
         if pos_status == 'fail':
             hard.append(f'还没到位：{setup["name"]}要求的位置条件未满足（{pos_value}）。')
     if sid == 'discretionary' and not (str(plan.get('bet') or '').strip() and str(plan.get('time_limit') or '').strip()):
@@ -153,7 +155,7 @@ def judge(plan, market, system, account):
     if not stop or not entry or dist is None or dist <= 0:
         hard.append('止损缺失或方向不对：做多止损要低于入场，做空止损要高于入场。')
         dist = None
-    suggested_stop = (structure-0.25*atr*side) if _known(structure, atr) else None
+    suggested_stop = P(structure-0.25*atr*side) if _known(structure, atr) else None
     min_rr = rules['min_rr']
     eff = dist or ((entry-suggested_stop)*side if entry and suggested_stop and (entry-suggested_stop)*side > 0 else None)
     levels = dict(stop=suggested_stop, stop_basis='结构位外 0.25 × ATR14（只是候选，未写入你的计划）' if suggested_stop else '数据不足，无法给出结构止损',
@@ -161,11 +163,11 @@ def judge(plan, market, system, account):
     if entry and eff:
         far = d.far()
         if setup and setup['target_rule'] == 'rr_2':
-            levels.update(target=entry+2*eff*side, target_basis='2R 目标')
+            levels.update(target=P(entry+2*eff*side), target_basis='2R 目标')
         elif far is not None and (far-entry)*side >= min_rr*eff:
             levels.update(target=far, target_basis=f'前方摆动点 {fmt(far)}，约 {r2((far-entry)*side/eff)}R')
         else:
-            levels.update(target=entry+min_rr*eff*side,
+            levels.update(target=P(entry+min_rr*eff*side),
                           target_basis=f'最低 {r2(min_rr)}R' + (f'；前方摆动点 {fmt(far)} 只有 {r2((far-entry)*side/eff)}R，可能先受阻' if far is not None and (far-entry)*side > 0 else ''))
     rr = None
     if dist and target:

@@ -143,6 +143,11 @@ class JudgeTests(unittest.TestCase):
         statuses = {c['status'] for d in j['dimensions'] if d['key'] != 'risk' for c in d['checks']}
         self.assertEqual(statuses, {'unknown'})
 
+    def test_prices_round_to_instrument_decimals(self):
+        j = sj.judge(plan(), market(long_snap(atr=0.3333, close=100.15, recent_low=100.1, price_decimals=2)), SYSTEM, ACCOUNT)
+        self.assertEqual(j['trigger_price'], 100.17); self.assertIn('100.17', j['wait_for'])
+        self.assertEqual(j['levels']['stop'], 99.92)
+
     def test_cooldown_adds_lesson_not_hard_fail(self):
         acct = dict(ACCOUNT, cooldown={'active': True})
         j = sj.judge(plan(entry_price='100.7', take_profit='102.9'), market(long_snap(close=100.7)), SYSTEM, acct)

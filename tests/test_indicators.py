@@ -49,6 +49,11 @@ class IndicatorTests(unittest.TestCase):
             self.assertIsNone(s[k])
         self.assertIsNone(ind.snapshot([])['close'])
 
+    def test_snapshot_price_decimals_from_closes(self):
+        candles=[dict(open='4.950',high='4.96',low='4.9',close='4.954',volume='1'),dict(open='4.95',high='4.97',low='4.94',close='4.9600',volume='1')]
+        self.assertEqual(ind.snapshot(candles)['price_decimals'],3)
+        self.assertIsNone(ind.snapshot([])['price_decimals'])
+
     def test_snapshot_exposes_previous_and_recent_bars(self):
         candles=[bar(10,11,9,10),bar(10,12,8.5,11),bar(11,11.5,10,10.5),bar(10,10.12,8.8,10.1)]
         s=ind.snapshot(candles)
