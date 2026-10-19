@@ -49,6 +49,13 @@ class IndicatorTests(unittest.TestCase):
             self.assertIsNone(s[k])
         self.assertIsNone(ind.snapshot([])['close'])
 
+    def test_snapshot_exposes_previous_and_recent_bars(self):
+        candles=[bar(10,11,9,10),bar(10,12,8.5,11),bar(11,11.5,10,10.5),bar(10,10.12,8.8,10.1)]
+        s=ind.snapshot(candles)
+        self.assertEqual((s['prev_high'],s['prev_low']),(11.5,10.0))
+        self.assertEqual((s['recent_low'],s['recent_high']),(8.5,12.0))
+        self.assertIn('hammer',s['patterns']);self.assertEqual(s['prev_patterns'],ind.patterns(candles[:-1]))
+
 
 if __name__=='__main__':
     unittest.main()
