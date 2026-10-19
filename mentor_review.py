@@ -133,3 +133,107 @@ def assess(record, replay, check, ctx):
                 pnl=pnl, pnl_asset=res.get('asset'), exit_price=exit_price, entry_price=entry, stop=stop, target=target,
                 check_id=(check or {}).get('id'), check_state=cs, reference_only=record.get('exchange', 'binance') != 'binance',
                 note='规则复盘：分开评价想法与执行，不代替你的个人复盘，也不由盈亏推断能力。')
+
+
+def init(db):
+    db.execute('CREATE TABLE IF NOT EXISTS mentor_reviews(journal_id TEXT PRIMARY KEY,closed INTEGER NOT NULL,updated INTEGER NOT NULL,data TEXT NOT NULL)')
+
+
+def _base(symbol):
+    return str(symbol or '').upper().removesuffix('USDT')
+
+
+def _check(db, record, anchor):
+    rows = [json.loads(r[0]) for r in db.execute('SELECT data FROM assistant_checks ORDER BY created DESC')]
+    wanted = record.get('pretrade_check_id')
+    if wanted:
+        found = next((c for c in rows if c.get('id') == wanted), None)
+        return (found, 'manual') if found else (None, None)
+    for c in rows:
+        p = c.get('plan') or {}
+        if (_base(p.get('symbol')) == _base(record.get('symbol')) and p.get('direction') == record.get('direction')
+                and anchor and 0 <= anchor-c.get('created_at', 0) <= 2*3600000):
+            return c, 'auto'
+    return None, None
+
+
+def _losses(db, records, before):
+    out = []
+    for r in records:
+        t = review_learning.closed(r)
+        if not t or not before or t >= before:
+            continue
+        res = review_automation.result(r)
+        v = _f(res['net'] if res['net'] is not None else res['realized'])
+        if v is not None and v < 0:
+            out.append(t)
+    return out
+
+
+def get(jid):
+    import market_replay
+    import trader_memory
+    with journal.connect() as db:
+        records = journal.all_journals(db)
+        record = next((r for r in records if r['id'] == jid), None)
+        if not record:
+            raise ValueError('找不到这条交易记录。')
+        closed = review_learning.closed(record)
+        if not closed:
+            return dict(status='not_closed', note='确认平仓后才做导师复盘。')
+        row = db.execute('SELECT * FROM mentor_reviews WHERE journal_id=?', (jid,)).fetchone()
+        if row and row['closed'] == closed and row['updated'] == record['updated']:
+            return json.loads(row['data'])
+        anchor = review_learning.opened(record) or record.get('created')
+        check, link = _check(db, record, anchor)
+        losses = _losses(db, records, review_learning.opened(record))
+        minutes = int(journal.kv('assistant.cooldown', {}, db).get('minutes', 30))
+    replay = market_replay.latest(jid)
+    if not replay:
+        try:
+            replay = market_replay.capture(jid)
+        except Exception:
+            replay = None
+    pref = trader_memory.risk_preference(trader_memory.context(record.get('symbol')))
+    result = assess(record, replay, check, dict(losses=losses, cooldown_minutes=minutes,
+                                                cap_amount=float(pref['risk_budget_upper']) if pref else None))
+    result.update(link=link)
+    with journal.connect() as db:
+        db.execute('INSERT OR REPLACE INTO mentor_reviews VALUES(?,?,?,?)', (jid, closed, record['updated'], json.dumps(result, ensure_ascii=False)))
+    return result
+
+
+def adopt(jid):
+    review = get(jid)
+    action = review.get('next_action')
+    if not action:
+        raise ValueError('这笔没有需要改进的执行问题，不用新增提醒。')
+    with journal.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        existing = db.execute('SELECT * FROM review_actions WHERE journal_id=? AND instruction=?', (jid, action['instruction'])).fetchone()
+        if existing:
+            db.execute('UPDATE review_actions SET archived=0 WHERE id=?', (existing['id'],))
+            return dict(existing, archived=0)
+        item = dict(id=uuid.uuid4().hex, journal_id=jid, instruction=action['instruction'], created=journal.now_ms(), archived=0)
+        db.execute('INSERT INTO review_actions VALUES(:id,:journal_id,:instruction,:created,:archived)', item)
+        return item
+
+
+def recent_codes(n=10):
+    counts = {}
+    with journal.connect() as db:
+        for (data,) in db.execute('SELECT data FROM mentor_reviews ORDER BY closed DESC LIMIT ?', (n,)):
+            for item in json.loads(data).get('execution', []):
+                if item['status'] == 'fail':
+                    counts[item['code']] = counts.get(item['code'], 0)+1
+    return counts
+
+
+def lesson_order(lessons):
+    """Cards for problems that keep coming back first; a repeated problem gets a card even if today's check missed it."""
+    weight = {}
+    for code, count in recent_codes().items():
+        weight[LESSON[code]] = weight.get(LESSON[code], 0)+count
+    ordered = sorted(dict.fromkeys(lessons), key=lambda c: -weight.get(c, 0))
+    extra = [c for c, w in sorted(weight.items(), key=lambda x: -x[1]) if w >= 2 and c not in ordered]
+    return ordered+extra

@@ -312,3 +312,8 @@ class MentorWiringTests(unittest.TestCase):
         j=self.run_create(self.plan(symbol='ETH',entry_price='102',quantity='1',stop_loss='99',risk_budget='3',add_journal_id=jid))['judgment']
         self.assertEqual(j['state'],'no');self.assertTrue(any('加仓后整笔' in x for x in j['hard_fails']))
         self.assertAlmostEqual(j['add']['room_qty'],0.6666)  # (3 - 1×(100-99)) / (102-99), floored
+
+    def test_lesson_cards_prefer_recent_repeated_mistakes(self):
+        with patch('mentor_review.recent_codes',return_value={'early_exit':3}):
+            j=self.run_create(self.plan())['judgment']
+        self.assertIn('early_exit',[c['code'] for c in j['lesson_cards']])

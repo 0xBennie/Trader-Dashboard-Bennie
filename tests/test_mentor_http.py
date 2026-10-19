@@ -44,3 +44,15 @@ class MentorHTTPTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+class MentorReviewHTTPTests(MentorHTTPTests):
+    def test_review_and_adopt_routes(self):
+        import json as j
+        with journal.connect() as db:
+            db.execute('INSERT INTO journals VALUES(?,?,?,?)',('j1',1,1,j.dumps(dict(symbol='ETHUSDT',exchange='binance',direction='LONG',status='持仓中',entry_price='100',quantity='1'))))
+        status,data=self.request('/api/mentor/review?id=j1')
+        self.assertEqual(status,200);self.assertEqual(data['status'],'not_closed')
+        self.assertEqual(self.request('/api/mentor/review?id=nope')[0],400)
+        self.assertEqual(self.request('/api/mentor/adopt',{'journal_id':'j1'})[0],400)
+        self.assertEqual(self.request('/api/mentor/adopt',{'journal_id':'j1'},token='bad')[0],403)

@@ -99,3 +99,68 @@ class AssessTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+import json as _json
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import journal
+
+
+class StoreTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.p=patch.object(journal,'DB',Path(self.temp.name)/'j.sqlite3');self.p.start();journal.init()
+        self.latest=patch('market_replay.latest',return_value=replay(UP));self.latest.start()
+
+    def tearDown(self):
+        self.latest.stop();self.p.stop();self.temp.cleanup()
+
+    def put(self,jid,data,created=T0-60000):
+        with journal.connect() as db:
+            db.execute('INSERT INTO journals VALUES(?,?,?,?)',(jid,created,created,_json.dumps(data)))
+
+    def check(self,cid,created,symbol='ETH',direction='LONG',state='no'):
+        with journal.connect() as db:
+            db.execute('INSERT INTO assistant_checks VALUES(?,?,?)',(cid,created,_json.dumps(dict(id=cid,created_at=created,
+                plan=dict(symbol=symbol,direction=direction,stop_loss='98',take_profit='104'),judgment=dict(state=state)))))
+
+    def test_get_caches_links_and_counts_recent_losses(self):
+        r=record();r.pop('id');self.put('j1',r)
+        loss=record(realized='-5',closed=T0-5*60000);loss.pop('id');self.put('j0',loss,created=T0-3600000)
+        self.check('old',T0-3*3600000);self.check('other',T0-600000,symbol='BTC');self.check('mine',T0-600000)
+        a=mr.get('j1')
+        self.assertEqual(a['check_id'],'mine');self.assertEqual(a['link'],'auto')
+        self.assertEqual(a['next_action']['code'],'ignored_verdict')
+        self.assertEqual(next(c for c in a['execution'] if c['code']=='cooldown')['status'],'fail')
+        with patch.object(mr,'assess',side_effect=AssertionError('should use cache')):
+            self.assertEqual(mr.get('j1')['quadrant'],a['quadrant'])
+
+    def test_explicit_link_wins_and_open_trade_not_reviewed(self):
+        r=record(pretrade_check_id='old');r.pop('id');self.put('j1',r);self.check('old',T0-3*3600000,state='go');self.check('mine',T0-600000)
+        a=mr.get('j1');self.assertEqual((a['check_id'],a['link']),('old','manual'))
+        o=record(status='持仓中');o['execution']['closed_ms']=None;o.pop('id');self.put('j2',o)
+        self.assertEqual(mr.get('j2')['status'],'not_closed')
+        with self.assertRaises(ValueError):mr.get('missing')
+
+    def test_adopt_writes_reminder_not_personal_review(self):
+        r=record(realized='1');r.pop('id');self.put('j1',r)
+        item=mr.adopt('j1')
+        self.assertEqual(item['instruction'],mr.NEXT['early_exit'])
+        with journal.connect() as db:
+            data=_json.loads(db.execute("SELECT data FROM journals WHERE id='j1'").fetchone()[0])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM review_actions').fetchone()[0],1)
+        self.assertNotIn('review_next',data);self.assertNotIn('reflection',data)
+        mr.adopt('j1')
+        with journal.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM review_actions').fetchone()[0],1)
+        clean=record();clean.pop('id');self.put('j3',clean)
+        with self.assertRaises(ValueError):mr.adopt('j3')
+
+    def test_recent_codes_counts_fails(self):
+        for i in range(3):
+            r=record(realized='1',closed=T0+(10+i)*STEP);r.pop('id');self.put('j%d'%i,r);mr.get('j%d'%i)
+        self.assertEqual(mr.recent_codes()['early_exit'],3)
+        self.assertEqual(mr.lesson_order(['size_by_stop','early_exit']),['early_exit','size_by_stop'])
+        self.assertEqual(mr.lesson_order([]),['early_exit'])

@@ -31,6 +31,7 @@ import market_replay
 import trader_memory
 import trade_assistant
 import trading_system
+import mentor_review
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -199,6 +200,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trade_assistant.cooldown())
             if route.path == '/api/assistant/status':
                 return self.send(200, trade_assistant.status())
+            if route.path == '/api/mentor/review':
+                return self.send(200, mentor_review.get(parse_qs(route.query).get('id',[''])[0]))
             if route.path == '/api/system':
                 return self.send(200, {'active':trading_system.active(),'history':trading_system.history()})
             if route.path == '/api/assistant/checks':
@@ -332,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trader_memory.save(payload))
             if path == '/api/assistant/cooldown':
                 return self.send(200, trade_assistant.set_cooldown(payload))
+            if path == '/api/mentor/adopt':
+                return self.send(200, mentor_review.adopt(payload.get('journal_id')))
             if path == '/api/system/confirm':
                 return self.send(200, trading_system.confirm(payload))
             if path == '/api/assistant/check':

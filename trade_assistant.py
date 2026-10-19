@@ -11,6 +11,7 @@ import trader_memory
 import ai_provider
 import indicators
 import lessons
+import mentor_review
 import official_data
 import setup_judge
 import trading_system
@@ -316,7 +317,7 @@ def mentor_judgment(plan,replay,result):
         if add['total_risk']>j['sizing']['budget']:
             j['hard_fails'].append(f"加仓后整笔风险 {setup_judge.fmt(add['total_risk'])} 超过预算 {setup_judge.fmt(j['sizing']['budget'])}；按新止损最多再加 {setup_judge.fmt(add['room_qty'])}。")
             j.update(state='no',label=setup_judge.LABELS['no'])
-    j.update(add=add,lesson_cards=lessons.pick(j['lessons']),
+    j.update(add=add,lesson_cards=lessons.pick(mentor_review.lesson_order(j['lessons'])),
              source=dict(exchange='binance',symbol=source['symbol'],reference_only=plan['exchange']!='binance',through=anchor,
                          note='形态与指标统一使用 Binance USDⓈ-M 官方 K 线；非 Binance 交易时只作参考，不是成交证据。'))
     return j

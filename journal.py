@@ -59,6 +59,8 @@ def init():
         trade_assistant.init(db)
         import trading_system
         trading_system.init(db)
+        import mentor_review
+        mentor_review.init(db)
     DB.chmod(0o600)
 
 
