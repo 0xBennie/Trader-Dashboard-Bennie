@@ -57,6 +57,8 @@ def init():
         market_replay.init(db)
         trader_memory.init(db)
         trade_assistant.init(db)
+        import trading_system
+        trading_system.init(db)
     DB.chmod(0o600)
 
 
