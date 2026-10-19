@@ -186,7 +186,7 @@ def collect(record, now=None, getter=public_get, preflight=False):
     unsupported = interval not in INTERVALS
     if unsupported:
         interval = '5m'
-    intervals = list(dict.fromkeys([interval,'1h','4h']))
+    intervals = list(dict.fromkeys([interval,'1h','4h']+(['1d'] if interval in ('4h','1d') else [])))
     closed = review_learning.closed(record)
     windows = []
     for frame in intervals:
@@ -195,7 +195,7 @@ def collect(record, now=None, getter=public_get, preflight=False):
         if not preflight and closed and closed > anchor+96*step:
             targets.append(('exit',closed))
         for kind, center in targets:
-            start = max(0, center//step*step-120*step)
+            start = max(0, center//step*step-(250 if preflight else 120)*step)
             end = min(now, center if preflight else center+96*step)
             w = dict(kind=kind, interval=frame, anchor=center, requested_start=start, requested_end=end)
             try:

@@ -30,6 +30,7 @@ import review_automation
 import market_replay
 import trader_memory
 import trade_assistant
+import trading_system
 from binance_client import Binance, BinanceError, credentials
 
 ROOT = journal.ROOT
@@ -196,6 +197,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trader_memory.markdown(trader_memory.snapshot()), 'text/markdown; charset=utf-8', 'trader-memory.md')
             if route.path == '/api/assistant/cooldown':
                 return self.send(200, trade_assistant.cooldown())
+            if route.path == '/api/assistant/status':
+                return self.send(200, trade_assistant.status())
+            if route.path == '/api/system':
+                return self.send(200, {'active':trading_system.active(),'history':trading_system.history()})
             if route.path == '/api/assistant/checks':
                 return self.send(200, {'items':trade_assistant.listing()})
             if route.path == '/api/market/replay':
@@ -327,6 +332,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trader_memory.save(payload))
             if path == '/api/assistant/cooldown':
                 return self.send(200, trade_assistant.set_cooldown(payload))
+            if path == '/api/system/confirm':
+                return self.send(200, trading_system.confirm(payload))
             if path == '/api/assistant/check':
                 return self.send(200, trade_assistant.create(payload))
             if path == '/api/market/replay':

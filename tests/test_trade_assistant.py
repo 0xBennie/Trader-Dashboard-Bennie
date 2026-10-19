@@ -149,7 +149,7 @@ class AssistantTests(unittest.TestCase):
         memory.save({'text':'原始个人规则','kind':'preference'})
         plan=self.plan();plan['use_ai']=True
         replay=market.collect(plan,NOW,getter,preflight=True)
-        with patch.object(market,'collect',return_value=replay), patch.object(assistant.ai_provider,'status',return_value={'available':True}), patch.object(assistant.ai_provider,'complete',return_value=({'summary':'测试'},{})) as model:
+        with patch.object(market,'collect',return_value=replay), patch.object(assistant.official_data,'binance_flow',return_value={'status':'unavailable'}), patch.object(assistant.ai_provider,'status',return_value={'available':True}), patch.object(assistant.ai_provider,'complete',return_value=({'summary':'测试'},{})) as model:
             result=assistant.create(plan)
         prompt=model.call_args.args[0]
         self.assertIn('原始个人规则',prompt)
@@ -224,6 +224,91 @@ class CooldownTests(unittest.TestCase):
         plan=assistant.validate(dict(exchange='binance',symbol='ETHUSDT',direction='LONG',timeframe='5m',entry_price='100',
             quantity='',stop_loss='',take_profit='',risk_budget='',equity='',thesis='',invalidation=''))
         replay=market.collect(plan,NOW,getter,preflight=True)
-        with patch.object(market,'collect',return_value=replay):
+        with patch.object(market,'collect',return_value=replay), patch('official_data.binance_flow',return_value={'status':'unavailable'}):
             result=assistant.create(plan)
         self.assertTrue(result['cooldown']['active']);self.assertTrue(result['warnings'][0].startswith('冷静期：ETHUSDT 亏损平仓 -100'))
+
+
+FLOW={'status':'unavailable'}
+
+
+class MentorWiringTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.dbpatch=patch.object(journal,'DB',Path(self.temp.name)/'journal.sqlite3');self.dbpatch.start()
+        journal.init()
+        self.flow=patch.object(assistant.official_data,'binance_flow',return_value=FLOW);self.flow.start()
+
+    def tearDown(self):
+        self.flow.stop();self.dbpatch.stop();self.temp.cleanup()
+
+    def plan(self,**extra):
+        base=dict(exchange='variational',symbol='BTC',direction='LONG',timeframe='5m',entry_price='100',quantity='',
+                  stop_loss='98',take_profit='104',risk_budget='',equity='',thesis='',invalidation='',setup_id='support_bounce')
+        base.update(extra);return assistant.validate(base)
+
+    def run_create(self,plan):
+        replay=market.collect(plan,NOW,getter,preflight=True)
+        with patch.object(market,'collect',return_value=replay):
+            return assistant.create(plan)
+
+    def test_preflight_uses_250_bars_and_daily_for_4h(self):
+        r=market.collect(self.plan(timeframe='4h'),NOW,getter,preflight=True)
+        self.assertEqual([w['interval'] for w in r['windows']],['4h','1h','1d'])
+        r=market.collect(self.plan(),NOW,getter,preflight=True)
+        self.assertGreaterEqual(r['windows'][0]['before_count'],249)
+
+    def test_consultation_includes_judgment(self):
+        result=self.run_create(self.plan())
+        j=result['judgment']
+        self.assertIn(j['state'],('go','conditional','wait_trigger','no'))
+        self.assertEqual(j['source']['symbol'],'BTCUSDT');self.assertTrue(j['source']['reference_only'])
+        self.assertIsInstance(j['lesson_cards'],list)
+        self.assertEqual(assistant.listing()[0]['judgment']['state'],j['state'])
+
+    def test_validate_rejects_unknown_setup_and_long_text(self):
+        with self.assertRaises(ValueError):self.plan(setup_id='moon')
+        with self.assertRaises(ValueError):self.plan(bet='x'*501)
+        self.assertEqual(self.plan(setup_id='')['setup_id'],'')
+
+    def open(self,**extra):
+        data=dict(exchange='variational',symbol='ETH',direction='LONG',status='持仓中',entry_price='100',quantity='1',stop_loss='98')
+        data.update(extra);return journal.save_journal(data)['id']
+
+    def test_open_positions_skip_incomplete(self):
+        a=self.open();self.open(stop_loss='');self.open(status='已平仓');self.open(direction='SHORT',entry_price='50',quantity='2',stop_loss='51')
+        p=assistant.open_positions()
+        self.assertEqual(len(p['items']),2);self.assertEqual(p['by_direction'],{'LONG':2.0,'SHORT':2.0})
+        self.assertEqual(next(i['journal_id'] for i in p['items'] if i['direction']=='LONG'),a)
+
+    def test_add_to_position_recalculates_total(self):
+        jid=self.open()
+        result=self.run_create(self.plan(symbol='ETH',entry_price='102',quantity='1',stop_loss='99',add_journal_id=jid))
+        add=result['judgment']['add']
+        self.assertEqual((add['total_qty'],add['avg_entry'],add['total_risk']),(2.0,101.0,4.0))
+        self.assertIn('add_recalc',result['judgment']['lessons'])
+
+    def test_symbol_without_binance_perp(self):
+        plan=self.plan()
+        replay=market.collect(plan,NOW,lambda u,p:[],preflight=True)
+        with patch.object(market,'collect',return_value=replay):
+            j=assistant.create(plan)['judgment']
+        self.assertEqual(j['state'],'unavailable');self.assertIn('Binance',j['reason'])
+
+    def test_judgment_failure_isolated(self):
+        with patch.object(assistant.setup_judge,'judge',side_effect=RuntimeError('boom')):
+            result=self.run_create(self.plan())
+        self.assertEqual(result['judgment']['state'],'unavailable');self.assertIn('verdict',result)
+
+    def test_status_summarises_system_positions_and_reminder(self):
+        self.open()
+        s=assistant.status()
+        self.assertEqual(s['system']['version'],1);self.assertFalse(s['system']['confirmed'])
+        self.assertEqual(s['open_positions']['by_direction']['LONG'],2.0)
+        self.assertIn('cooldown',s);self.assertIsNone(s['reminder'])
+
+    def test_add_over_budget_is_no_and_reports_room(self):
+        jid=self.open()
+        j=self.run_create(self.plan(symbol='ETH',entry_price='102',quantity='1',stop_loss='99',risk_budget='3',add_journal_id=jid))['judgment']
+        self.assertEqual(j['state'],'no');self.assertTrue(any('加仓后整笔' in x for x in j['hard_fails']))
+        self.assertAlmostEqual(j['add']['room_qty'],0.6666)  # (3 - 1×(100-99)) / (102-99), floored

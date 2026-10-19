@@ -9,6 +9,11 @@ import journal
 import market_replay
 import trader_memory
 import ai_provider
+import indicators
+import lessons
+import official_data
+import setup_judge
+import trading_system
 
 
 def init(db):
@@ -94,8 +99,17 @@ def number(value, name, optional=False):
         raise ValueError(name+'需要大于零的有效数字。') from None
 
 
+HIGHER={'5m':'1h','15m':'1h','30m':'4h','1h':'4h','4h':'1d','1d':'1d'}
+
+
 def validate(payload):
-    p={k:payload.get(k,'') for k in ('exchange','symbol','direction','timeframe','entry_price','quantity','stop_loss','take_profit','risk_budget','equity','thesis','invalidation')}
+    p={k:payload.get(k,'') for k in ('exchange','symbol','direction','timeframe','entry_price','quantity','stop_loss','take_profit','risk_budget','equity','thesis','invalidation','setup_id','bet','time_limit','add_journal_id')}
+    for k in ('setup_id','bet','time_limit','add_journal_id'):
+        if not isinstance(p[k],str) or len(p[k])>500:
+            raise ValueError('交易类型、押注和时限最多 500 字。')
+        p[k]=p[k].strip()
+    if p['setup_id'] and p['setup_id'] not in {x['id'] for x in trading_system.active()['data']['setups']}:
+        raise ValueError('交易类型不在你的交易系统里。')
     p['exchange']=p['exchange'] or 'variational';p['symbol']=str(p['symbol']).strip().upper()
     market_replay.instrument(p['exchange'],p['symbol'])
     if p['direction'] not in {'LONG','SHORT'} or p['timeframe'] not in market_replay.INTERVALS:
@@ -205,6 +219,10 @@ def create(payload):
     warning=cooldown_warning(result['cooldown'])
     if warning:
         result['warnings'].insert(0,warning)
+    try:
+        result['judgment']=mentor_judgment(plan,replay,result)
+    except Exception:
+        result['judgment']={'state':'unavailable','reason':'形态判断暂时没完成；行情、风险和记忆检查已保留。'}
     if payload.get('use_ai') is True:
         if ai_provider.status()['available']:
             import ai_review
@@ -225,6 +243,83 @@ def create(payload):
     with journal.connect() as db:
         db.execute('INSERT INTO assistant_checks VALUES(?,?,?)',(identity,result['created_at'],json.dumps(result,ensure_ascii=False)))
     return result
+
+
+def _risk(entry,qty,stop,direction):
+    side=1 if direction=='LONG' else -1
+    return max(0.0,(entry-stop)*side*qty)
+
+
+def open_positions(db=None):
+    """Open journals with entry, quantity and stop. Screenshot positions may be stale; their timestamps are kept."""
+    if db is None:
+        with journal.connect() as conn:
+            return open_positions(conn)
+    items=[];total={'LONG':0.0,'SHORT':0.0}
+    for r in journal.all_journals(db):
+        if r.get('status')!='持仓中' or r.get('direction') not in total:
+            continue
+        try:
+            entry,qty,stop=(float(r[k]) for k in ('entry_price','quantity','stop_loss'))
+        except (KeyError,TypeError,ValueError):
+            continue
+        if min(entry,qty,stop)<=0:
+            continue
+        risk=_risk(entry,qty,stop,r['direction']);total[r['direction']]+=risk
+        items.append(dict(journal_id=r['id'],symbol=r.get('symbol',''),exchange=r.get('exchange','binance'),direction=r['direction'],
+                          entry=entry,qty=qty,stop=stop,risk=risk,updated=r['updated']))
+    return dict(items=items,by_direction=total,note='按日志中的入场、数量和止损估算；截图记录可能已过期，不代表交易所实时仓位。')
+
+
+def status():
+    with journal.connect() as db:
+        system=trading_system.active(db)
+        row=db.execute('SELECT instruction FROM review_actions WHERE archived=0 ORDER BY created DESC LIMIT 1').fetchone()
+        return dict(cooldown=cooldown(db=db),open_positions=open_positions(db),reminder=row[0] if row else None,
+                    system=dict(version=system['version'],confirmed=system['data']['rules']['confirmed'],rules=system['data']['rules'],
+                                setups=[dict(id=x['id'],name=x['name'],summary=x['summary'],default_timeframe=x['default_timeframe'],
+                                             direction_hint=x['direction_hint'],status=x['status']) for x in system['data']['setups']]))
+
+
+def mentor_judgment(plan,replay,result):
+    bm=replay if replay['source']['exchange']=='binance' else market_replay.collect(dict(plan,exchange='binance'),preflight=True)
+    anchor=bm['anchor'];frames={w['interval']:w for w in bm['windows'] if w.get('kind')=='decision'}
+    closed=lambda w:[c for c in (w or {}).get('candles',[]) if c['close_time']<=anchor]
+    decision=closed(frames.get(plan['timeframe']))
+    if len(decision)<20:
+        return {'state':'unavailable','reason':'Binance 没有这个永续合约，或 K 线没取到，暂时无法做形态分析。'}
+    source=bm['source']
+    flow=official_data.binance_flow(source['symbol'],plan['timeframe'],anchor)
+    memory=result['memory'];pref=trader_memory.risk_preference(memory)
+    positions=open_positions()
+    add=None;open_risk=positions['by_direction'][plan['direction']]
+    if plan['add_journal_id']:
+        base=next((i for i in positions['items'] if i['journal_id']==plan['add_journal_id']),None)
+        if not base or base['direction']!=plan['direction']:
+            raise ValueError('要加仓的持仓不存在或方向不一致。')
+        open_risk-=base['risk']
+        qty=float(plan['quantity'] or 0);stop=float(plan['stop_loss'] or base['stop']);total=base['qty']+qty
+        avg=(base['entry']*base['qty']+float(plan['entry_price'])*qty)/total
+        add=dict(journal_id=base['journal_id'],existing_qty=base['qty'],existing_entry=base['entry'],add_qty=qty,
+                 total_qty=total,avg_entry=avg,stop=stop,total_risk=_risk(avg,total,stop,plan['direction']))
+    account=dict(budget=float(plan['risk_budget']) if plan['risk_budget'] else None,
+                 cap_amount=float(pref['risk_budget_upper']) if pref else None,currency=result['figures']['currency'],
+                 equity=float(plan['equity']) if plan['equity'] else None,equity_source='你填写的账户权益' if plan['equity'] else None,
+                 open_risk=open_risk,cooldown=result.get('cooldown'))
+    system=trading_system.active()['data']
+    j=setup_judge.judge(dict(plan,is_add=bool(add)),dict(decision=indicators.snapshot(decision),higher=indicators.snapshot(closed(frames.get(HIGHER[plan['timeframe']]))),
+                        relative=bm.get('conditions_before') or {},flow=flow),system,account)
+    if add and j['sizing']['budget']:
+        dist=(float(plan['entry_price'])-add['stop'])*(1 if plan['direction']=='LONG' else -1)
+        held=_risk(add['existing_entry'],add['existing_qty'],add['stop'],plan['direction'])
+        add['room_qty']=setup_judge.floor_qty((j['sizing']['budget']-held)/dist) if dist>0 and j['sizing']['budget']>held else 0.0
+        if add['total_risk']>j['sizing']['budget']:
+            j['hard_fails'].append(f"加仓后整笔风险 {setup_judge.fmt(add['total_risk'])} 超过预算 {setup_judge.fmt(j['sizing']['budget'])}；按新止损最多再加 {setup_judge.fmt(add['room_qty'])}。")
+            j.update(state='no',label=setup_judge.LABELS['no'])
+    j.update(add=add,lesson_cards=lessons.pick(j['lessons']),
+             source=dict(exchange='binance',symbol=source['symbol'],reference_only=plan['exchange']!='binance',through=anchor,
+                         note='形态与指标统一使用 Binance USDⓈ-M 官方 K 线；非 Binance 交易时只作参考，不是成交证据。'))
+    return j
 
 
 def listing():
