@@ -27,8 +27,8 @@ test('cooldown banner shows remaining time, escapes symbol, and hides when expir
  assert.match(ui.cooldownBanner(c,true),/href="#assistant"/);
  assert.equal(ui.cooldownBanner({...c,until:now-1}),'');assert.equal(ui.cooldownBanner({active:false}),'');
 });
-test('quick card renders the memory cap and mobile-friendly numeric inputs',()=>{
+test('assistant page leads with the mentor flow and folds the detailed form',()=>{
  ui.set({notes:[{state:'confirmed',kind:'risk_rule',risk_budget_upper:'200',risk_currency:'USD',updated:2},{state:'confirmed',kind:'risk_rule',risk_budget_upper:'500',risk_currency:'USD',updated:1}]},{active:false,minutes:30});
- const html=ui.render();assert.match(html,/下单前 10 秒/);assert.match(html,/单笔上限 200 USD/);assert.match(html,/inputmode="decimal"/);assert.match(html,/我刚止损了/);
+ const html=ui.render();assert.match(html,/id="mentor"/);assert.match(html,/看行情，判断这笔/);assert.match(html,/inputmode="decimal"/);assert.match(html,/我刚止损了/);assert.match(html,/<details class="panel assistant-detail">/);
  ui.set(null,null);
 });
