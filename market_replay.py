@@ -31,6 +31,9 @@ def public_get(url, params):
     allowed = {'https://fapi.binance.com/fapi/v1/klines',
                'https://fapi.binance.com/futures/data/openInterestHist',
                'https://fapi.binance.com/fapi/v1/fundingRate',
+               'https://fapi.binance.com/fapi/v1/premiumIndex',
+               'https://fapi.binance.com/futures/data/takerlongshortRatio',
+               'https://fapi.binance.com/futures/data/topLongShortPositionRatio',
                'https://api.bybit.com/v5/market/kline',
                'https://www.okx.com/api/v5/market/history-candles'}
     if url not in allowed:
