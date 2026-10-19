@@ -6,6 +6,7 @@
   const TONES={go:'verdict-go',conditional:'verdict-maybe',wait_trigger:'verdict-wait',no:'verdict-no'};
   const MARK={pass:'✓',fail:'✗',unknown:'?'};
   const FRAMES=[['5m','5 分钟'],['15m','15 分钟'],['30m','30 分钟'],['1h','1 小时'],['4h','4 小时'],['1d','1 天']];
+  const reviews=new Map(),reviewLoading=new Set();
   let deps=null,status=null,form={exchange:'variational',direction:'LONG',timeframe:'5m',setup_id:''},result=null,busy=false,loading=false;
   const store={get(k){try{return root.localStorage?.getItem('mentor:'+k)||'';}catch{return '';}},set(k,v){try{root.localStorage?.setItem('mentor:'+k,v);}catch{}}};
 
@@ -91,6 +92,32 @@
     </section>`;
   }
 
+  const QTONE={right_clean:'verdict-go',good_loss:'verdict-wait',clean_unknown:'verdict-wait',lucky:'verdict-maybe',both:'verdict-no'};
+  function reviewPanel(r){
+    if(!r)return '<p class="helper">正在整理这笔的导师复盘…</p>';
+    if(r.status!=='complete')return `<p class="helper">${esc(r.note||'这笔暂时不能复盘。')}</p>`;
+    const j=r.judgment||{},hit={target:'先到止盈',stop:'先到止损',ambiguous:'同一根 K 线两边都碰到'}[j.first_hit];
+    const verdict={go:'可以做',conditional:'有条件做',wait_trigger:'等触发',no:'别做'}[r.check_state];
+    return `<div class="mentor-review-body ${QTONE[r.quadrant]||''}">
+      <div class="verdict-head"><span class="verdict-badge">${esc(r.quadrant_label)}</span>${r.pnl!=null?`<span>结果 ${num(r.pnl,2)} ${esc(r.pnl_asset||'')}</span>`:''}</div>
+      <div class="review-split"><div><h4>想法对不对</h4><p><b>${j.state==='right'?'对':j.state==='wrong'?'错':'无法判断'}</b>${hit?` · ${hit}`:''}</p>${j.mfe_r!=null?`<p class="helper">持仓期间最多浮盈 ${num(j.mfe_r,2)}R，最多浮亏 ${num(j.mae_r,2)}R</p>`:''}<p class="helper">${esc(j.note)}</p></div>
+      <div><h4>执行好不好</h4><ul class="mentor-checks-list">${(r.execution||[]).map(c=>`<li class="check-${esc(c.status)}"><i aria-hidden="true">${MARK[c.status]||'?'}</i><span>${esc(c.label)}</span>${c.value?`<small>${esc(c.value)}</small>`:''}</li>`).join('')}</ul></div></div>
+      ${r.check_id||r.check_state?`<p class="helper">开仓前判断：${esc(verdict||'未完成')}${r.link==='auto'?'（自动关联：入场前 2 小时内同币同方向的最近一次判断）':''}</p>`:'<p class="helper">这笔没有开仓前判断。下一笔先在「开仓前问助手」走一遍三步。</p>'}
+      ${r.next_action?`<div class="review-next"><span>下一笔只改一件事</span><p>${esc(r.next_action.instruction)}</p>${r.adopted?'<p class="helper">已放进首页提醒。</p>':`<button type="button" class="button small" data-mentor-adopt="${esc(r.journal_id)}">采纳，放进首页提醒</button>`}</div>`:'<p class="review-next done">这笔按计划执行，不需要新增提醒。</p>'}
+      ${(r.lesson_cards||[]).map(c=>`<article class="mentor-lesson"><h4>${esc(c.title)}</h4><p>${esc(c.body)}</p></article>`).join('')}
+      <p class="helper">${r.reference_only?'Binance 参考行情，不是这个交易所的成交证据。':''}${esc(r.note)}</p></div>`;
+  }
+  function reviewSlot(j){
+    if(!j||j.status!=='已平仓')return '';
+    return `<section class="panel mentor-review" data-mentor-review="${esc(j.id)}"><h3>导师复盘</h3>${reviewPanel(reviews.get(j.id))}</section>`;
+  }
+  async function loadReview(id){
+    if(reviewLoading.has(id))return;reviewLoading.add(id);
+    try{reviews.set(id,await deps.api('/api/mentor/review?id='+encodeURIComponent(id)));}
+    catch(e){reviews.set(id,{status:'error',note:e.message});}
+    finally{reviewLoading.delete(id);const el=document.querySelector(`[data-mentor-review="${CSS.escape(id)}"]`);if(el)el.outerHTML=reviewSlot({id,status:'已平仓'});}
+  }
+
   function render(ctx={}){
     ctxMemory=ctx.memory||null;
     return `<div class="mentor" id="mentor">${statusBar(status,ctx)}${formHtml()}<div id="mentor-verdict">${verdictCard(result)}</div></div>`;
@@ -98,7 +125,7 @@
 
   function repaint(){const el=document.querySelector('#mentor-form');if(el)el.outerHTML=formHtml();}
   async function loadStatus(){if(loading)return;loading=true;try{status=await deps.api('/api/assistant/status');deps.render();}catch(e){deps.toast(e.message);}finally{loading=false;}}
-  function mount(){if(document.querySelector('#mentor')&&!status)loadStatus();}
+  function mount(){if(document.querySelector('#mentor')&&!status)loadStatus();document.querySelectorAll('[data-mentor-review]').forEach(el=>{if(!reviews.has(el.dataset.mentorReview))loadReview(el.dataset.mentorReview);});}
   function init(d){
     deps=d;form.equity=store.get('equity:'+form.exchange);
     document.addEventListener('input',e=>{const f=e.target.closest('#mentor-form');if(!f)return;const prev=form.exchange;Object.assign(form,Object.fromEntries(new FormData(f)));
@@ -106,7 +133,7 @@
       if(form.exchange!==prev){form.equity=store.get('equity:'+form.exchange);repaint();return;}
       const o=document.querySelector('#mentor-live');if(o)o.innerHTML=live();});
     document.addEventListener('change',e=>{if(e.target.closest('#mentor-form')&&['exchange','add_journal_id','timeframe'].includes(e.target.name)){Object.assign(form,Object.fromEntries(new FormData(e.target.closest('form'))));if(e.target.name==='exchange')form.equity=store.get('equity:'+form.exchange);repaint();}});
-    document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!b.closest('#mentor'))return;
+    document.addEventListener('click',async e=>{const b=e.target.closest('button');if(b?.dataset.mentorAdopt){b.disabled=true;try{await deps.api('/api/mentor/adopt',{journal_id:b.dataset.mentorAdopt});status=null;const cached=reviews.get(b.dataset.mentorAdopt);if(cached)cached.adopted=true;b.textContent='已放进提醒';deps.toast('已加入首页提醒，下次开仓前会看到。');}catch(err){b.disabled=false;deps.toast(err.message);}return;}if(!b||!b.closest('#mentor'))return;
       if(b.dataset.mentorDir){Object.assign(form,Object.fromEntries(new FormData(b.closest('form'))),{direction:b.dataset.mentorDir});repaint();}
       if(b.dataset.mentorSetup){Object.assign(form,Object.fromEntries(new FormData(b.closest('form'))),{setup_id:form.setup_id===b.dataset.mentorSetup?'':b.dataset.mentorSetup,timeframe:b.dataset.frame||form.timeframe});repaint();}});
     document.addEventListener('submit',async e=>{
@@ -119,6 +146,6 @@
       finally{busy=false;repaint();const v=document.querySelector('#mentor-verdict');if(v){v.innerHTML=verdictCard(result);v.scrollIntoView({behavior:'smooth',block:'start'});}}
     });
   }
-  const api={init,mount,render,statusBar,setupPicker,verdictCard,set:s=>{if('status' in s)status=s.status;if('form' in s)form={...form,...s.form};if('result' in s)result=s.result;}};
+  const api={init,mount,render,statusBar,setupPicker,verdictCard,reviewPanel,reviewSlot,set:s=>{if('status' in s)status=s.status;if('form' in s)form={...form,...s.form};if('result' in s)result=s.result;}};
   if(typeof module!=='undefined')module.exports=api;else root.JournalMentor=api;
 })(typeof window!=='undefined'?window:globalThis);

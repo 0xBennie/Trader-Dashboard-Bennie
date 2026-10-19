@@ -78,3 +78,20 @@
   .verdict-price{font-size:34px}
   .mentor-status-row #cooldown-action{margin-left:0}
 }
+
+.mentor-review{--tone:#4b5563;--wash:#f3f4f6;margin-top:20px;padding:20px 22px}
+.mentor-review h3{margin:0 0 14px;font-size:16px;font-weight:650}
+.mentor-review-body{display:grid;gap:14px}
+.review-split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.review-split h4{margin:0 0 6px;font-size:13px;color:#6b7483;font-weight:500}
+.review-split p{margin:0 0 4px;font-size:14px;line-height:1.6}
+.mentor-checks-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.mentor-checks-list li{display:grid;grid-template-columns:18px 1fr;gap:2px 8px;font-size:13px;line-height:1.5}
+.mentor-checks-list li i{font-style:normal;font-weight:700}
+.mentor-checks-list li small{grid-column:2;color:#7a8390;overflow-wrap:anywhere}
+.review-next{background:var(--wash);border-radius:10px;padding:12px 14px;margin:0}
+.review-next span{display:block;font-size:12px;color:#6b7483}
+.review-next p{margin:4px 0 10px;font-size:15px;line-height:1.6;font-weight:550}
+.review-next.done{font-size:14px;color:#3f6f5c}
+.review-next .button{min-height:40px;font-size:13px}
+@media(max-width:600px){.review-split{grid-template-columns:1fr}.mentor-review{padding:16px}}

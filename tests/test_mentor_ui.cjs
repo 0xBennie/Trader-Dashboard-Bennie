@@ -48,3 +48,32 @@ test('live preview uses the smallest of memory cap, account % and typed budget',
   const html=ui.render({memory,cooldownHtml:'',coolAction:''});
   assert.match(html,/按 32\.72 上限可开 <b>654\.4<\/b>/);
 });
+const review=(over={})=>({status:'complete',journal_id:'j1',quadrant:'lucky',quadrant_label:'运气赚钱：结果好，过程有问题',
+  judgment:{state:'right',first_hit:'target',mfe_r:2.1,mae_r:0.4,note:'Binance 参考 K 线'},
+  execution:[{code:'early_exit',label:'按止损或止盈离场',status:'fail',value:'<b>离场 101</b>'},{code:'cooldown',label:'不在冷静期内开仓',status:'pass',value:''},{code:'add_recalc',label:'没有临时加仓',status:'unknown',value:'无法核对'}],
+  next_action:{code:'early_exit',instruction:'提前离场前写下看到的失效信号。'},lesson_cards:[],check_state:'no',link:'auto',reference_only:true,note:'规则复盘',...over});
+test('review panel shows quadrant, judgment, checks, next action and escapes',()=>{
+  const html=ui.reviewPanel(review());
+  assert.match(html,/运气赚钱/);assert.match(html,/先到止盈/);assert.match(html,/2\.1R/);
+  assert.match(html,/data-mentor-adopt="j1"/);assert.match(html,/提前离场前写下/);assert.match(html,/自动关联/);
+  assert.match(html,/无法核对/);assert.doesNotMatch(html,/<b>离场/);
+  const u=ui.reviewPanel(review({judgment:{state:'unknown',first_hit:null,mfe_r:null,mae_r:null,note:'入场时间未知：不判断'},next_action:null,quadrant:'clean_unknown',quadrant_label:'执行好（判断无法核对）'}));
+  assert.match(u,/入场时间未知/);assert.doesNotMatch(u,/data-mentor-adopt/);
+});
+test('review slot only for closed trades',()=>{
+  assert.equal(ui.reviewSlot({id:'a',status:'持仓中'}),'');
+  assert.match(ui.reviewSlot({id:'a',status:'已平仓'}),/data-mentor-review="a"/);
+});
+test('assistant mount wakes the mentor on every page, not only the assistant page',()=>{
+  let mounted=0;const prev={doc:global.document,m:global.JournalMentor};
+  global.document={querySelector:()=>null,querySelectorAll:()=>[]};
+  delete require.cache[require.resolve('../static/assistant.js')];
+  global.JournalMentor={mount:()=>{mounted++;}};
+  const a=require('../static/assistant.js');a.mount();
+  global.document=prev.doc;global.JournalMentor=prev.m;delete require.cache[require.resolve('../static/assistant.js')];
+  assert.equal(mounted,1);
+});
+test('adopted review shows confirmation instead of the button',()=>{
+  const html=ui.reviewPanel(review({adopted:true}));
+  assert.doesNotMatch(html,/data-mentor-adopt/);assert.match(html,/已放进首页提醒/);
+});

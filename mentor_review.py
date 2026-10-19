@@ -197,7 +197,8 @@ def get(jid):
     pref = trader_memory.risk_preference(trader_memory.context(record.get('symbol')))
     result = assess(record, replay, check, dict(losses=losses, cooldown_minutes=minutes,
                                                 cap_amount=float(pref['risk_budget_upper']) if pref else None))
-    result.update(link=link)
+    import lessons
+    result.update(link=link, lesson_cards=lessons.pick(result.get('lessons', [])))
     with journal.connect() as db:
         db.execute('INSERT OR REPLACE INTO mentor_reviews VALUES(?,?,?,?)', (jid, closed, record['updated'], json.dumps(result, ensure_ascii=False)))
     return result

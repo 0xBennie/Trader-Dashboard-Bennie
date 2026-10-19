@@ -134,6 +134,7 @@ class StoreTests(unittest.TestCase):
         a=mr.get('j1')
         self.assertEqual(a['check_id'],'mine');self.assertEqual(a['link'],'auto')
         self.assertEqual(a['next_action']['code'],'ignored_verdict')
+        self.assertEqual(a['lesson_cards'][0]['code'],'trigger_vs_location')
         self.assertEqual(next(c for c in a['execution'] if c['code']=='cooldown')['status'],'fail')
         with patch.object(mr,'assess',side_effect=AssertionError('should use cache')):
             self.assertEqual(mr.get('j1')['quadrant'],a['quadrant'])
