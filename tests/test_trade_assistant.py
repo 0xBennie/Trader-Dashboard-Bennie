@@ -317,3 +317,42 @@ class MentorWiringTests(unittest.TestCase):
         with patch('mentor_review.recent_codes',return_value={'early_exit':3}):
             j=self.run_create(self.plan())['judgment']
         self.assertIn('early_exit',[c['code'] for c in j['lesson_cards']])
+
+
+class HomeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.dbpatch=patch.object(journal,'DB',Path(self.temp.name)/'journal.sqlite3');self.dbpatch.start();journal.init()
+
+    def tearDown(self):
+        self.dbpatch.stop();self.temp.cleanup()
+
+    def put(self,jid,age_h,**extra):
+        t=journal.now_ms()-int(age_h*3600000)
+        data=dict(exchange='variational',symbol='BR',direction='LONG',status='持仓中',entry_price='1',quantity='100',stop_loss='0.9');data.update(extra)
+        with journal.connect() as db:
+            db.execute('INSERT INTO journals VALUES(?,?,?,?)',(jid,t,t,json.dumps(data)))
+
+    def test_stale_positions_are_flagged_and_left_out_of_totals(self):
+        self.put('fresh',2);self.put('old',72,symbol='FOLKS');self.put('api',72,execution={'opened_ms':1,'closed_ms':None})
+        p=assistant.open_positions()
+        self.assertAlmostEqual(p['by_direction']['LONG'],20.0)
+        self.assertEqual([i['journal_id'] for i in p['stale']],['old'])
+        self.assertTrue(next(i for i in p['items'] if i['journal_id']=='old')['stale'])
+
+    def test_resolve_position(self):
+        self.put('old',72)
+        assistant.resolve_position({'journal_id':'old','action':'still_open'})
+        self.assertEqual(assistant.open_positions()['stale'],[])
+        assistant.resolve_position({'journal_id':'old','action':'closed'})
+        with journal.connect() as db:
+            self.assertEqual(json.loads(db.execute("SELECT data FROM journals WHERE id='old'").fetchone()[0])['status'],'已平仓')
+        self.assertEqual(assistant.open_positions()['items'],[])
+        for bad in ({'journal_id':'old','action':'boom'},{'journal_id':'nope','action':'closed'}):
+            with self.assertRaises(ValueError):assistant.resolve_position(bad)
+
+    def test_status_reports_habits(self):
+        with patch('mentor_review.recent_codes',return_value={'early_exit':6,'no_stop':4,'cooldown':1,'size_by_stop':1}):
+            s=assistant.status()
+        self.assertEqual([h['code'] for h in s['habits']],['early_exit','no_stop','cooldown'])
+        self.assertEqual(s['habits'][0]['count'],6);self.assertTrue(s['habits'][0]['label']);self.assertTrue(s['habits'][0]['lesson']['title'])

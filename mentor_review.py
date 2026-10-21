@@ -16,6 +16,8 @@ NEXT = {'ignored_verdict': '开仓前判断是「别做」或「等触发」时�
         'size_by_stop': '下单前用卡片按止损算数量，计划亏损不超过上限。',
         'add_recalc': '加仓前勾选「这是加仓」，按整笔仓位重算风险。',
         'early_exit': '提前离场前写下看到的失效信号；没有信号就按原止损止盈走。'}
+HABITS = {'early_exit': '没到止损也没到止盈就提前离场', 'no_stop': '没有止损', 'cooldown': '亏损后冷静期内又开仓',
+          'size_by_stop': '计划亏损超过上限', 'add_recalc': '临时加仓没重算风险', 'ignored_verdict': '无视开仓前判断'}
 LESSON = {'ignored_verdict': 'trigger_vs_location', 'cooldown': 'cooldown', 'no_stop': 'size_by_stop',
           'size_by_stop': 'size_by_stop', 'add_recalc': 'add_recalc', 'early_exit': 'early_exit'}
 

@@ -335,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, trader_memory.save(payload))
             if path == '/api/assistant/cooldown':
                 return self.send(200, trade_assistant.set_cooldown(payload))
+            if path == '/api/assistant/position':
+                return self.send(200, trade_assistant.resolve_position(payload))
             if path == '/api/mentor/adopt':
                 return self.send(200, mentor_review.adopt(payload.get('journal_id')))
             if path == '/api/system/confirm':

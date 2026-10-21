@@ -77,3 +77,21 @@ test('adopted review shows confirmation instead of the button',()=>{
   const html=ui.reviewPanel(review({adopted:true}));
   assert.doesNotMatch(html,/data-mentor-adopt/);assert.match(html,/已放进首页提醒/);
 });
+const homeStatus=(over={})=>({cooldown:{active:false,minutes:30},reminder:'<i>提前离场前写下失效信号</i>',
+  habits:[{code:'early_exit',count:6,label:'没到止损也没到止盈就提前离场',lesson:{title:'提前离场要有信号',do:'先确认可见的失效信号'}},{code:'no_stop',count:4,label:'没有止损',lesson:{title:'数量由止损决定',do:'只填入场和止损'}}],
+  open_positions:{by_direction:{LONG:0,SHORT:0},items:[],stale:[{journal_id:'br1',symbol:'BR',exchange:'variational',direction:'LONG',updated:1}]},
+  system:{version:1,confirmed:false,rules:{account_risk_pct:2}},...over});
+test('home card leads with state, reminder, habits and stale positions',()=>{
+  const html=ui.homeCard(homeStatus());
+  assert.match(html,/id="mentor-home"/);assert.match(html,/href="#assistant"/);
+  assert.match(html,/提前离场前写下失效信号/);assert.doesNotMatch(html,/<i>提前/);
+  assert.match(html,/没到止损也没到止盈就提前离场/);assert.match(html,/6 次/);
+  assert.match(html,/data-mentor-position="br1"/);assert.match(html,/Variational · 多/);assert.match(html,/data-position-action="still_open"/);assert.match(html,/data-position-action="closed"/);
+  assert.match(html,/草案/);
+});
+test('home card shows cooldown and an empty state without data',()=>{
+  const now=Date.now();
+  const c=ui.homeCard(homeStatus({cooldown:{active:true,minutes:30,until:now+12*60000,trigger:{symbol:'ETH',at:now-18*60000,source:'closed_trade',pnl:'-50',asset:'USDT'}},habits:[],open_positions:{by_direction:{},items:[],stale:[]},reminder:null}));
+  assert.match(c,/冷静期/);assert.match(c,/12 分钟/);assert.doesNotMatch(c,/最常犯/);
+  assert.match(ui.homeCard(null),/读取/);
+});

@@ -118,14 +118,31 @@
     finally{reviewLoading.delete(id);const el=document.querySelector(`[data-mentor-review="${CSS.escape(id)}"]`);if(el)el.outerHTML=reviewSlot({id,status:'已平仓'});}
   }
 
+  const day=x=>x?new Date(x).toLocaleString('zh-CN',{timeZone:'Asia/Hong_Kong',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'';
+  function homeCard(s){
+    if(!s)return '<section class="mentor-home" id="mentor-home"><p class="helper">正在读取你的交易状态…</p></section>';
+    const c=s.cooldown||{},cool=c.active&&c.until>Date.now(),left=cool?Math.max(1,Math.ceil((c.until-Date.now())/60000)):0;
+    const stale=s.open_positions?.stale||[],habits=s.habits||[];
+    return `<section class="mentor-home ${cool?'is-cooling':''}" id="mentor-home" aria-label="交易导师">
+      <div class="home-state"><div>${cool?`<b>冷静期 · 还剩 ${left} 分钟</b><span>${esc(c.trigger?.symbol||'')} ${c.trigger?.source==='manual'?'你标记了止损':'刚亏损平仓'}，${esc(day(c.until).slice(-5))} 后再开新仓。</span>`
+        :`<b>想开一笔？先走三步</b><span>选类型 → 填价格和风险 → 看行情判断。</span>`}</div>
+        <a class="button ${cool?'':'primary'} home-go" href="#assistant">${cool?'先看看，不下单':'开仓前检查'}</a></div>
+      ${s.reminder?`<div class="home-reminder"><span>下一笔只改一件事</span><p>${esc(s.reminder)}</p></div>`:''}
+      ${habits.length?`<div class="home-habits"><h3>最近复盘里，你最常犯的错</h3><ol>${habits.map(h=>`<li><div><b>${esc(h.label)}</b><em>${num(h.count,0)} 次</em></div>${h.lesson?.do?`<small>${esc(h.lesson.do)}</small>`:''}</li>`).join('')}</ol></div>`:''}
+      ${stale.length?`<div class="home-stale"><h3>${stale.length} 条记录还标着「持仓中」，超过 48 小时没更新</h3><p class="helper">它们没算进持仓风险。告诉我现在的状态：</p>${stale.map(p=>`<div class="stale-row"><div><b>${esc(p.symbol)}</b><small>${esc({binance:'Binance',variational:'Variational',okx:'OKX',bybit:'Bybit'}[p.exchange]||p.exchange)} · ${p.direction==='SHORT'?'空':'多'} · 最后更新 ${esc(day(p.updated))}</small></div><div><button type="button" class="button small" data-mentor-position="${esc(p.journal_id)}" data-position-action="still_open">仍持有</button><button type="button" class="button small quiet" data-mentor-position="${esc(p.journal_id)}" data-position-action="closed">已平仓</button></div></div>`).join('')}</div>`:''}
+      ${s.system&&!s.system.confirmed?`<p class="helper">交易系统还是草案（单笔最多亏账户 ${num(s.system.rules?.account_risk_pct,2)}%）。<a href="#assistant">去确认</a></p>`:''}
+    </section>`;
+  }
+  function paintHome(){const el=document.querySelector('#mentor-home');if(el)el.outerHTML=homeCard(status);}
+
   function render(ctx={}){
     ctxMemory=ctx.memory||null;
     return `<div class="mentor" id="mentor">${statusBar(status,ctx)}${formHtml()}<div id="mentor-verdict">${verdictCard(result)}</div></div>`;
   }
 
   function repaint(){const el=document.querySelector('#mentor-form');if(el)el.outerHTML=formHtml();}
-  async function loadStatus(){if(loading)return;loading=true;try{status=await deps.api('/api/assistant/status');deps.render();}catch(e){deps.toast(e.message);}finally{loading=false;}}
-  function mount(){if(document.querySelector('#mentor')&&!status)loadStatus();document.querySelectorAll('[data-mentor-review]').forEach(el=>{if(!reviews.has(el.dataset.mentorReview))loadReview(el.dataset.mentorReview);});}
+  async function loadStatus(){if(loading)return;loading=true;try{status=await deps.api('/api/assistant/status');paintHome();deps.render();}catch(e){deps.toast(e.message);}finally{loading=false;}}
+  function mount(){if(document.querySelector('#mentor,#mentor-home')&&!status)loadStatus();document.querySelectorAll('[data-mentor-review]').forEach(el=>{if(!reviews.has(el.dataset.mentorReview))loadReview(el.dataset.mentorReview);});}
   function init(d){
     deps=d;form.equity=store.get('equity:'+form.exchange);
     document.addEventListener('input',e=>{const f=e.target.closest('#mentor-form');if(!f)return;const prev=form.exchange;Object.assign(form,Object.fromEntries(new FormData(f)));
@@ -133,7 +150,7 @@
       if(form.exchange!==prev){form.equity=store.get('equity:'+form.exchange);repaint();return;}
       const o=document.querySelector('#mentor-live');if(o)o.innerHTML=live();});
     document.addEventListener('change',e=>{if(e.target.closest('#mentor-form')&&['exchange','add_journal_id','timeframe'].includes(e.target.name)){Object.assign(form,Object.fromEntries(new FormData(e.target.closest('form'))));if(e.target.name==='exchange')form.equity=store.get('equity:'+form.exchange);repaint();}});
-    document.addEventListener('click',async e=>{const b=e.target.closest('button');if(b?.dataset.mentorAdopt){b.disabled=true;try{await deps.api('/api/mentor/adopt',{journal_id:b.dataset.mentorAdopt});status=null;const cached=reviews.get(b.dataset.mentorAdopt);if(cached)cached.adopted=true;b.textContent='已放进提醒';deps.toast('已加入首页提醒，下次开仓前会看到。');}catch(err){b.disabled=false;deps.toast(err.message);}return;}if(!b||!b.closest('#mentor'))return;
+    document.addEventListener('click',async e=>{const b=e.target.closest('button');if(b?.dataset.mentorPosition){b.disabled=true;try{await deps.api('/api/assistant/position',{journal_id:b.dataset.mentorPosition,action:b.dataset.positionAction});status=null;await loadStatus();deps.toast(b.dataset.positionAction==='closed'?'已标为平仓，结果待核对。':'已确认仍持有，48 小时内不再提示。');}catch(err){b.disabled=false;deps.toast(err.message);}return;}if(b?.dataset.mentorAdopt){b.disabled=true;try{await deps.api('/api/mentor/adopt',{journal_id:b.dataset.mentorAdopt});status=null;const cached=reviews.get(b.dataset.mentorAdopt);if(cached)cached.adopted=true;b.textContent='已放进提醒';deps.toast('已加入首页提醒，下次开仓前会看到。');}catch(err){b.disabled=false;deps.toast(err.message);}return;}if(!b||!b.closest('#mentor'))return;
       if(b.dataset.mentorDir){Object.assign(form,Object.fromEntries(new FormData(b.closest('form'))),{direction:b.dataset.mentorDir});repaint();}
       if(b.dataset.mentorSetup){Object.assign(form,Object.fromEntries(new FormData(b.closest('form'))),{setup_id:form.setup_id===b.dataset.mentorSetup?'':b.dataset.mentorSetup,timeframe:b.dataset.frame||form.timeframe});repaint();}});
     document.addEventListener('submit',async e=>{
@@ -146,6 +163,6 @@
       finally{busy=false;repaint();const v=document.querySelector('#mentor-verdict');if(v){v.innerHTML=verdictCard(result);v.scrollIntoView({behavior:'smooth',block:'start'});}}
     });
   }
-  const api={init,mount,render,statusBar,setupPicker,verdictCard,reviewPanel,reviewSlot,set:s=>{if('status' in s)status=s.status;if('form' in s)form={...form,...s.form};if('result' in s)result=s.result;}};
+  const api={init,mount,render,homeCard,status:()=>status,statusBar,setupPicker,verdictCard,reviewPanel,reviewSlot,set:s=>{if('status' in s)status=s.status;if('form' in s)form={...form,...s.form};if('result' in s)result=s.result;}};
   if(typeof module!=='undefined')module.exports=api;else root.JournalMentor=api;
 })(typeof window!=='undefined'?window:globalThis);

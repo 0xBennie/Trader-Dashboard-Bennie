@@ -100,6 +100,7 @@ def number(value, name, optional=False):
         raise ValueError(name+'需要大于零的有效数字。') from None
 
 
+STALE_MS=48*3600000
 HIGHER={'5m':'1h','15m':'1h','30m':'4h','1h':'4h','4h':'1d','1d':'1d'}
 
 
@@ -266,17 +267,35 @@ def open_positions(db=None):
             continue
         if min(entry,qty,stop)<=0:
             continue
-        risk=_risk(entry,qty,stop,r['direction']);total[r['direction']]+=risk
+        risk=_risk(entry,qty,stop,r['direction'])
+        stale=not r.get('execution') and journal.now_ms()-r['updated']>STALE_MS
+        if not stale:
+            total[r['direction']]+=risk
         items.append(dict(journal_id=r['id'],symbol=r.get('symbol',''),exchange=r.get('exchange','binance'),direction=r['direction'],
-                          entry=entry,qty=qty,stop=stop,risk=risk,updated=r['updated']))
-    return dict(items=items,by_direction=total,note='按日志中的入场、数量和止损估算；截图记录可能已过期，不代表交易所实时仓位。')
+                          entry=entry,qty=qty,stop=stop,risk=risk,updated=r['updated'],stale=stale))
+    return dict(items=items,by_direction=total,stale=[i for i in items if i['stale']],
+                note='按日志中的入场、数量和止损估算；超过 48 小时未更新、也没有交易所 API 成交的记录标为待核对，不计入合计。')
+
+
+def resolve_position(payload):
+    """The trader states what happened to a stale record. 'closed' keeps the result unknown until evidence arrives."""
+    action=payload.get('action')
+    if action not in ('still_open','closed'):
+        raise ValueError('请选择「仍持有」或「已平仓」。')
+    with journal.connect() as db:
+        if not db.execute('SELECT 1 FROM journals WHERE id=?',(payload.get('journal_id'),)).fetchone():
+            raise ValueError('找不到这条记录。')
+    status='持仓中' if action=='still_open' else '已平仓'
+    return journal.save_journal(dict(id=payload['journal_id'],status=status,base_values={}))
 
 
 def status():
     with journal.connect() as db:
         system=trading_system.active(db)
         row=db.execute('SELECT instruction FROM review_actions WHERE archived=0 ORDER BY created DESC LIMIT 1').fetchone()
-        return dict(cooldown=cooldown(db=db),open_positions=open_positions(db),reminder=row[0] if row else None,
+        counts=sorted(mentor_review.recent_codes().items(),key=lambda x:-x[1])[:3]
+        habits=[dict(code=c,count=n,label=mentor_review.HABITS.get(c,c),lesson=lessons.LESSONS.get(mentor_review.LESSON.get(c),{})) for c,n in counts]
+        return dict(cooldown=cooldown(db=db),open_positions=open_positions(db),reminder=row[0] if row else None,habits=habits,
                     system=dict(version=system['version'],confirmed=system['data']['rules']['confirmed'],rules=system['data']['rules'],
                                 setups=[dict(id=x['id'],name=x['name'],summary=x['summary'],default_timeframe=x['default_timeframe'],
                                              direction_hint=x['direction_hint'],status=x['status']) for x in system['data']['setups']]))
