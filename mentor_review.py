@@ -172,9 +172,15 @@ def _losses(db, records, before):
     return out
 
 
-def get(jid):
+def _fresh(row, record, closed, replay):
+    return bool(row and row['closed'] == closed and row['updated'] == record['updated']
+                and json.loads(row['data']).get('replay_collected_at') == (replay or {}).get('collected_at'))
+
+
+def get(jid, capture=True):
     import market_replay
     import trader_memory
+    replay = market_replay.latest(jid)
     with journal.connect() as db:
         records = journal.all_journals(db)
         record = next((r for r in records if r['id'] == jid), None)
@@ -184,14 +190,13 @@ def get(jid):
         if not closed:
             return dict(status='not_closed', note='确认平仓后才做导师复盘。')
         row = db.execute('SELECT * FROM mentor_reviews WHERE journal_id=?', (jid,)).fetchone()
-        if row and row['closed'] == closed and row['updated'] == record['updated']:
+        if _fresh(row, record, closed, replay):
             return json.loads(row['data'])
         anchor = review_learning.opened(record) or record.get('created')
         check, link = _check(db, record, anchor)
         losses = _losses(db, records, review_learning.opened(record))
         minutes = int(journal.kv('assistant.cooldown', {}, db).get('minutes', 30))
-    replay = market_replay.latest(jid)
-    if not replay:
+    if not replay and capture:
         try:
             replay = market_replay.capture(jid)
         except Exception:
@@ -200,7 +205,7 @@ def get(jid):
     result = assess(record, replay, check, dict(losses=losses, cooldown_minutes=minutes,
                                                 cap_amount=float(pref['risk_budget_upper']) if pref else None))
     import lessons
-    result.update(link=link, lesson_cards=lessons.pick(result.get('lessons', [])))
+    result.update(link=link, lesson_cards=lessons.pick(result.get('lessons', [])), replay_collected_at=(replay or {}).get('collected_at'))
     with journal.connect() as db:
         db.execute('INSERT OR REPLACE INTO mentor_reviews VALUES(?,?,?,?)', (jid, closed, record['updated'], json.dumps(result, ensure_ascii=False)))
     return result
@@ -240,3 +245,20 @@ def lesson_order(lessons):
     ordered = sorted(dict.fromkeys(lessons), key=lambda c: -weight.get(c, 0))
     extra = [c for c, w in sorted(weight.items(), key=lambda x: -x[1]) if w >= 2 and c not in ordered]
     return ordered+extra
+
+
+def warm_one(now=None):
+    """Fill one missing or outdated review per worker turn from stored replays only; never fetches market data."""
+    import market_replay
+    with journal.connect() as db:
+        records = [r for r in journal.all_journals(db) if review_learning.closed(r)]
+        rows = {r['journal_id']: r for r in db.execute('SELECT * FROM mentor_reviews')}
+    for record in sorted(records, key=lambda r: -review_learning.closed(r)):
+        if _fresh(rows.get(record['id']), record, review_learning.closed(record), market_replay.latest(record['id'])):
+            continue
+        try:
+            get(record['id'], capture=False)
+        except Exception:
+            continue  # One unreadable record must not starve the rest.
+        return record['id']
+    return None

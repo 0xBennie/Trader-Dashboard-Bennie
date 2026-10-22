@@ -212,6 +212,11 @@ class Worker:
         process_queue(now)
         import market_replay, trader_memory
         market_replay.warm_one(now)
+        try:
+            import mentor_review
+            mentor_review.warm_one(now)
+        except Exception:
+            pass  # A review that cannot be computed must not stop daily reports or memory refresh.
         trader_memory.refresh_document()
         with journal.connect() as db:
             journal.set_kv(db, 'review_worker', {'last_success':journal.now_ms(),'error':None})

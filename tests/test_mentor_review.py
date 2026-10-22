@@ -165,3 +165,43 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(mr.recent_codes()['early_exit'],3)
         self.assertEqual(mr.lesson_order(['size_by_stop','early_exit']),['early_exit','size_by_stop'])
         self.assertEqual(mr.lesson_order([]),['early_exit'])
+
+
+class WarmTests(StoreTests):
+    def test_warm_one_fills_reviews_one_per_call_without_network(self):
+        for i in range(2):
+            r=record(realized='1',closed=T0+(10+i)*STEP);r.pop('id');self.put('w%d'%i,r)
+        o=record(status='持仓中');o['execution']['closed_ms']=None;o.pop('id');self.put('open',o)
+        with patch('market_replay.capture',side_effect=AssertionError('no network in warm')):
+            first=mr.warm_one();second=mr.warm_one();third=mr.warm_one()
+        self.assertEqual({first,second},{'w0','w1'});self.assertIsNone(third)
+        self.assertEqual(mr.recent_codes()['early_exit'],2)
+
+    def test_review_refreshes_when_replay_arrives(self):
+        r=record();r.pop('id');self.put('j1',r)
+        self.latest.stop()
+        with patch('market_replay.latest',return_value=None):
+            a=mr.get('j1',capture=False)
+        self.assertEqual(a['judgment']['state'],'unknown')
+        rep=dict(replay(UP),collected_at=123)
+        with patch('market_replay.latest',return_value=rep):
+            self.assertEqual(mr.get('j1')['judgment']['state'],'right')
+            self.assertIsNone(mr.warm_one())
+        self.latest.start()
+
+    def test_worker_tick_warms_mentor_reviews_and_survives_errors(self):
+        import review_automation as auto
+        with patch('market_replay.warm_one'), patch('trader_memory.refresh_document'), patch.object(mr,'warm_one',side_effect=RuntimeError('x')) as w:
+            auto.Worker().tick()
+        w.assert_called_once()
+        self.assertIsNone(journal.kv('review_worker')['error'])
+
+    def test_warm_one_skips_a_failing_trade(self):
+        for i in range(2):
+            r=record(realized='1',closed=T0+(10+i)*STEP);r.pop('id');self.put('w%d'%i,r)
+        real=mr.assess
+        def flaky(rec,*a):
+            if rec['id']=='w1':raise RuntimeError('bad record')
+            return real(rec,*a)
+        with patch.object(mr,'assess',side_effect=flaky):
+            self.assertEqual(mr.warm_one(),'w0')
